@@ -15,10 +15,17 @@ Some arguments for opposing sides:
 
 --------
 About the Dataset:
--General Social Survey (1993), a large social/demographic survey
--1500 observations. Removed missing entries, resulting in 352 final observations
--22 variables
--ID code, Marital Status (Married, Widowed, divorced, separated, never married), Age, Education (Less than HS, HS, Jr. College, Undergrad, Grad), Ethnicity (White, Black, Other), Religion (Protestant, Catholic, Jewish, None, Other), Views (Capital Punishment, Gun Laws, Sex Education, Euthanasia, Media, Newspaper, News on TV, News on PBS), Music preferences (“Big bands”, Blue grass, Country, Western, Blues, Musicals, Classical, Folk, Jazz)
+- General Social Survey (1993), a large social/demographic survey
+- 1500 observations. Removed missing entries, resulting in 352 final observations
+- 22 variables
+    - ID code
+    - Marital Status (Married, Widowed, divorced, separated, never married)
+    - Age
+    - Education (Less than HS, HS, Jr. College, Undergrad, Grad)
+    - Ethnicity (White, Black, Other)
+    - Religion (Protestant, Catholic, Jewish, None, Other)
+    - Views (Capital Punishment, Gun Laws, Sex Education, Euthanasia, Media, Newspaper, News on TV, News on PBS)
+    - Music preferences (“Big bands”, Blue grass, Country, Western, Blues, Musicals, Classical, Folk, Jazz)
 
 
 
