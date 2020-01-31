@@ -1,0 +1,402 @@
+---
+title: "Letting Patients Die: Predicting Attitudes Toward Euthanasia"
+author: "Kelly Oh"
+date: "Started December 8, 2015, Updated in 2020."
+output: pdf_document
+---
+```{r}
+# Clear the environment 
+rm(list=ls())
+options(stringsAsFactors = F)
+
+#Install Packages
+library(sp)
+library(tidyverse)
+library(magrittr)
+library(readxl)
+library(stringr)
+library(reshape2)
+library(MASS)
+library(cluster)
+library(ggplot2)
+library(ggmosaic)
+library(zeallot)
+library(boot)
+library(tree)
+library(randomForest)
+
+#Useful code that doesn't work in .Rmd but works well for .R
+# Install/load packages;
+#if (!library("pacman")) install.packages("pacman")
+#pacman::p_load(sp,
+#               tidyverse,
+#               magrittr,
+#               readxl,
+#               stringr,
+#               reshape2,
+#               MASS,
+#               cluster,
+#               ggplot2,
+#               ggmosaic,
+#               zeallot)
+#Set working directory
+#setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+#getwd()
+```
+
+Cleaning the Dataset
+```{r}
+gssRaw <- read.csv("/Users/kelly/Desktop/Euthanasia/Inputs/gss93.csv")
+dropRows = c(0, 8, 9)
+
+gssClean <- gssRaw %>%
+  mutate(
+    MAR_STAT  = ifelse(MAR_STAT == 9, NA, MAR_STAT),
+    AGE       = ifelse(AGE == 0 | AGE == 98 | AGE == 99, NA, AGE),
+    EDUC      = ifelse(EDUC == 7 | EDUC == 8 | EDUC == 9, NA, EDUC),
+    RELIG     = ifelse(RELIG == 8 | RELIG == 9, NA, RELIG),
+    CAP_PUN   = ifelse(CAP_PUN %in% dropRows, NA, CAP_PUN),
+    GUN_LAW   = ifelse(GUN_LAW %in% dropRows, NA, GUN_LAW),
+    SEX_ED    = ifelse(SEX_ED %in% dropRows, NA, SEX_ED),
+    ILL_DIE   = ifelse(ILL_DIE %in% dropRows, NA, ILL_DIE),
+    READ_NEWS = ifelse(READ_NEWS %in% dropRows, NA, READ_NEWS),
+    NEWS_TV   = ifelse(NEWS_TV %in% dropRows, NA, NEWS_TV),
+    NEWS_PBS  = ifelse(NEWS_PBS %in% dropRows, NA, NEWS_PBS),
+    BIGBAND   = ifelse(BIGBAND %in% dropRows, NA, BIGBAND),
+    BLUEGRASS = ifelse(BLUEGRASS %in% dropRows, NA, BLUEGRASS),
+    COUNTRY   = ifelse(COUNTRY %in% dropRows, NA, COUNTRY),
+    BLUES     = ifelse(BLUES %in% dropRows, NA, BLUES),
+    MUSICALS  = ifelse(MUSICALS %in% dropRows, NA, MUSICALS),
+    CLASSICAL = ifelse(CLASSICAL %in% dropRows, NA, CLASSICAL),
+    FOLK      = ifelse(FOLK %in% dropRows, NA, FOLK),
+    JAZZ      = ifelse(JAZZ %in% dropRows, NA, JAZZ))
+
+
+gss <- gssClean[complete.cases(gssClean),]
+                                                              
+```
+
+
+Non-metric MDS- shows two distinct clusters; tells us there is a difference between the 2 groups
+```{r}
+gss_dais <- daisy(gss[,-1], metric = c("gower"))
+gss_mds  <- isoMDS(gss_dais)
+
+pal = c("darkblue", "darkgoldenrod2")
+table(gss$ILL_DIE)
+
+#Plot the Non-metric MDS
+plot(gss_mds$points,
+     main = "Views on Euthanasia",
+     xlab = "Dimension 1",
+     ylab = "Dimension 2")
+points(gss_mds$points[,1], gss_mds$points[,2], col = pal[gss$ILL_DIE], pch = 19)
+legend("topright", legend = c("Support", "Oppose"), col = pal, pch = 19)
+
+```
+
+
+Exploring relationships between variables and ILL_DIE using mosaic plots.
+```{r}
+#Comments are below each chunk of code
+#Code for stylized charts are above
+#Quick, code for exploratory (less aesthetic) charts included at the bottom
+
+###----------------------------------------------------------------------------------
+#Stylized mosaic plots for charts in presentation
+ 
+gg <- ggplot(data = gss) +
+   geom_mosaic(aes(x = product(ILL_DIE, MAR_STAT), fill = MAR_STAT), na.rm = TRUE) +
+   labs(title="Marital Status and Euthanasia Position",
+        x = "Marital Status",
+        y = "1= Support, 2= Oppose") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+gg + scale_fill_discrete(name = NULL,
+                         labels = c("1 = Married", "2 = Widowed",
+                                   "3 = Divorced", "4 = Separated", "5 = Never Married"))
+prop.table(table(gss$ILL_DIE,gss$MAR_STAT), margin = 2)
+#More married people oppose than favor (because they are thinking of their loved ones?). More widowed people oppose than favor, perhaps for the same reason--the way they think of death has changed in the experience of seeing a loved one die? Funnily, more divorced people favor than oppose. More lonely? Not thinking of loved ones? More people who were never married favor than oppose--are these people younger? More lonely and independent? Raises interesting questions.
+
+
+bp <- ggplot(gss, aes(x = ILL_DIE, y = AGE, fill = ILL_DIE)) + 
+  geom_boxplot() +
+  labs(title = "Age and Euthanasia Position",
+       x = "Position",
+       y = "Age") +
+  theme(plot.title = element_text(hjust = 0.5)) #center title
+bp +
+  coord_flip() +
+  scale_fill_discrete(name = NULL, labels = c("1 = Support", "2 = Oppose")) #legend
+#Median age is younger for those who favor. Older you are, the more likely you are to oppose euthanasia. 
+
+
+gg <- ggplot(data = gss) +
+   geom_mosaic(aes(x = product(ILL_DIE, JAZZ), fill = JAZZ), na.rm = TRUE) +
+   labs(title="Jazz Music Preferences and Euthanasia Position",
+        x = "Jazz Music Preferences",
+        y = "1 = Support, 2 = Oppose") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+gg + scale_fill_discrete(name = NULL,
+                         labels = c("Like Very Much", "Like",
+                                    "Mixed Feelings", "Dislike", "Dislike a Lot"))
+#Those who really like jazz to those to have mixed feelings, more people support euthanasia than oppose it. However of those who dislike jazz - more people oppose euthansia. Higher your aversion, the more likely you are to oppose. Why?
+
+
+###----------------------------------------------------------------------------------
+#Creating less aesthetically pleasing mosaic plots as a general exploratory exercise.
+  
+mosaicplot(ILL_DIE ~ EDUC, data = gss, col = rainbow(5),
+           main = "Education Level",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Religion",
+           sub = "0 = Less than HS, 1 = HS, 2 = Jr. College, 3 = Undergrad, 4 = Grad")
+#in least educated group (less than high school), we see fewer people favor than oppose. in the most educated group, more people favor than oppose
+
+boxplot(gss$AGE~gss$ILL_DIE)
+#median age is younger for those who favor; interesting plot so made an improved plot above.
+
+mosaicplot(ILL_DIE ~ GENDER, data = gss, col = rainbow(2),
+           main = "Gender",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Gender (1 = Male, 2 = Female)")
+#slightly more males favor than oppose; slightly more females oppose than favor
+
+mosaicplot(ILL_DIE ~ ETHNIC, data = gss, col = rainbow(3),
+           main = "Ethnicity",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Ethnicity (1 = White, 2 = Black, 3 = Other)")
+#More white people favor than oppose. Interestingly, more people of other ethnic groups oppose than favor.
+
+mosaicplot(RELIG ~ ILL_DIE, data = gss, col = rainbow(2),
+           main = "Religious Beliefs",
+           ylab = "1 = Support Euth, 2 = Oppose Euth",
+           xlab = "Religion",
+           sub = "1 = Protestant, 2 = Catholic, 3 = Jewish, 4 = None, 5 = Other")
+prop.table(table(gss$ILL_DIE,gss$RELIG), margin = 2)
+#Slightly more Protestants and Catholics oppose than favor. More people who do not identify with any religion favor than oppose.
+
+mosaicplot(CAP_PUN ~ ILL_DIE, data = gss, col = rainbow(2),
+           main = "Capital Punishment Views",
+           ylab = "1 = Support Euth, 2 = Oppose Euth",
+           xlab = "Capital Punishment Views",
+           sub= "1 = Support Capital Pun, 2 = Oppose Capital Punishment")
+prop.table(table(gss$ILL_DIE,gss$CAP_PUN), margin = 2)
+#More people who favor capital punishment also favor death law. More people who oppose capital punishment also oppose death law.
+
+mosaicplot(ILL_DIE ~ SEX_ED, data = gss, col = rainbow(2),
+           main = "Sex Ed Views",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Sex Ed Views (1 = Support, 2 = Oppose)")
+#More people who favor sex ed also favor letting the ill die. More people who oppose sex ed oppose ill die. 
+
+
+mosaicplot(ILL_DIE ~ NEWS_TV, data = gss, col = rainbow(5),
+           main = "Frequency of Watching News",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "News Consumption",
+           sub = "1 = Everyday, 2 = Few Times A Week, 3= Once A Week, 4 = Few Times a Month, 5 = Never")
+#More people who watch the news every day oppose than favor. More people who watch the news once a week favor than oppose. No effect for other watching levels
+
+mosaicplot(ILL_DIE ~ COUNTRY, data = gss, col = rainbow(5),
+           main = "Country Music Preferences",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Country Music Preferences",
+           sub = "1 = Like Very Much, 2 = Like, 3 = Mixed Feelings 4 = Dislike, 5 = Dislike A Lot")
+#Of people who like country, more oppose euthanasia than favor. Of people who have mixed feelings, more favor than oppose. Same with people who strongly dislike.
+
+mosaicplot(ILL_DIE ~ MUSICALS, data = gss, col =rainbow(5),
+            main = "Musicals Preferences",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Musicals Preferences",
+           sub = "1 = Like Very Much, 2 = Like, 3 = Mixed Feelings 4 = Dislike, 5 = Dislike A Lot")
+#Of people who like musicals, more oppose euthanasia than favor. Of people who have mixed feelings, more favor than oppose.
+
+mosaicplot(ILL_DIE ~ FOLK, data = gss, col =rainbow(5),
+          main = "Folk Music Preferences",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Folk Music Preferences",
+           sub = "1 = Like Very Much, 2 = Like, 3 = Mixed Feelings 4 = Dislike, 5 = Dislike A Lot")
+#Of people who really like folk, more favor than oppose. Of people who like, more oppose than favor. Of people who have mixed feelings, more favor than oppose.
+
+mosaicplot(table(gss$ILL_DIE, gss$JAZZ), col =rainbow(5),
+           main ="Euthanasia Position and Jazz Opinion",
+           xlab ="1 = Support Euthanasia, 2 = Oppose Euthanasia",
+           ylab = 'Opinion About Jazz')
+#Of people who like jazz, more favor than oppose. Of people who dislike, more oppose than favor; interesting plot so made an improved plot above.
+```
+
+
+Logistic regression: 5 different models and error rates
+```{r}
+gss_glm <- gss %<>% mutate(ILL_DIE = ILL_DIE -1)
+fullfit <- glm(ILL_DIE ~ .-ID, data = gss, family = binomial(logit))
+summary(fullfit)
+#MAR_STAT, AGE, EDUC, RELIG, CAP_PUN, SEX_ED, READ_NEWS
+
+cv.err <- cv.glm(gss, fullfit, K = 5)
+cv.err$delta[1] #0.2694
+
+mod1 <- glm(ILL_DIE ~ MAR_STAT + AGE + EDUC + GENDER + ETHNIC + RELIG +
+              CAP_PUN + SEX_ED + NEWS_TV + FOLK + JAZZ,
+            data = gss,
+            family = binomial(logit))
+summary(mod1)
+cv.err <- cv.glm(gss, mod1, K = 5)
+cv.err$delta[1] #0.2361
+
+mod2 <- glm(ILL_DIE ~ MAR_STAT+ AGE + ETHNIC + RELIG + CAP_PUN + SEX_ED,
+            data = gss,
+            family = binomial(logit))
+summary(mod2)
+cv.err <- cv.glm(gss, mod2, K = 5)
+cv.err$delta[1] #0.2068
+
+mod3 <- glm(ILL_DIE ~ AGE,
+            data = gss,
+            family = binomial(logit))
+summary(mod3)
+cv.err <- cv.glm(gss, mod3, K = 5)
+cv.err$delta[1] #.2111
+
+mod4 <- glm(ILL_DIE ~ MAR_STAT,
+           data = gss,
+           family = binomial(logit))
+summary(mod4)
+cv.err <- cv.glm(gss, mod4, K = 5)
+cv.err$delta[1] #.2195
+
+mod4 <- glm(ILL_DIE ~ MAR_STAT + AGE + ETHNIC + RELIG + CAP_PUN + SEX_ED + NEWS_TV, 
+            data = gss,
+            family = binomial(logit))
+summary(mod4)
+cv.err <- cv.glm(gss, mod4, K = 5)
+cv.err$delta[1] #0.2119
+
+#boxplot(gss$AGE~gss$MAR_STAT, main="Relationship between Age and Marital Status", xlab="1=married, 2=widowed, 3=divorced, 4=separated, 5=never married", ylab="Age")
+
+bp <- ggplot(gss, aes(x = MAR_STAT, y = AGE, fill = MAR_STAT)) + 
+  geom_boxplot() +
+  labs(title = "Relationship between Age and Marital Status",
+       x = "Marital Status",
+       y = "Age") +
+  theme(plot.title = element_text(hjust = 0.5)) #center title
+bp +
+  scale_fill_discrete(name = NULL,
+                      labels = c("1 = Married", "2 = Widowed", "3 = Divorced",
+                                 "4 = Separated", "5 = Never Married")) #legend
+```
+
+
+
+Tree
+```{r}
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss) #full tree
+summary(gss.tree)
+gss.tree
+plot(gss.tree)
+text(gss.tree, pretty = 0, cex = .6)
+
+
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass) #prune 
+cv.gss
+plot(cv.train$size, cv.gss$dev, type = "b")
+
+prune.gss = prune.misclass(gss.tree, best = 7)
+plot(prune.gss)
+text(prune.gss, pretty = 0, cex = .6)
+summary(prune.gss)
+
+
+#test the decision tree
+set.seed(20)
+gssRandom <- sample(1:nrow(gss))
+
+group1 <- gssRandom[1:70]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group1,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 13)
+pred <- predict(prune.gss, gss[group1,], type = 'class')
+table <-table(pred, gss[group1,]$ILL_DIE)
+mean1 <- mean(pred != gss[group1,]$ILL_DIE)
+
+group2 <-gssRandom[71:141]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group2,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 7)
+pred <- predict(prune.gss, gss[group2,], type = 'class')
+table <- table(pred, gss[group2,]$ILL_DIE)
+mean2 <- mean(pred != gss[group2,]$ILL_DIE)
+
+group3 <- gssRandom[142:212]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group3,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 5)
+pred <- predict(prune.gss, gss[group3,], type = 'class')
+table <- table(pred, gss[group3,]$ILL_DIE)
+mean3 <- mean(pred != gss[group3,]$ILL_DIE)
+
+group4 <-gssRandom[213:283]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group4,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 5)
+pred <- predict(prune.gss, gss[group4,], type = 'class')
+table <- table(pred, gss[group4,]$ILL_DIE)
+mean4 <- mean(pred != gss[group4,]$ILL_DIE)
+
+group5 <- gssRandom[283:352]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group5,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 8)
+pred <- predict(prune.gss, gss[group5,], type = 'class')
+table <- table(pred, gss[group5,]$ILL_DIE)
+mean5 <- mean(pred != gss[group5,]$ILL_DIE)
+
+(mean1 + mean2 + mean3 + mean4 + mean5)/5
+```
+Random Forest
+```{r}
+gss.RF <- randomForest(ILL_DIE ~ . -ID,data = gss, importance = TRUE)
+gss.RF
+
+set.seed(20)
+gssRandom <- sample(1:nrow(gss))
+
+group1 <- gssRandom[1:70]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group1,], importance = TRUE)
+pred   <- predict(prune.gss, gss[group1,], type = 'class')
+table  <- table(pred, gss[group1,]$ILL_DIE)
+mean1  <- mean(pred != gss[group1,]$ILL_DIE)
+
+group2 <- gssRandom[71:141]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group2,], importance = TRUE)
+pred   <- predict(prune.gss,gss[group2,], type = 'class')
+table  <- table(pred, gss[group2,]$ILL_DIE)
+mean2  <- mean(pred!=gss[group2,]$ILL_DIE)
+
+group3 <- gssRandom[142:212]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group3,], importance = TRUE)
+pred   <- predict(prune.gss, gss[group3,], type = 'class')
+table  <- table(pred, gss[group3,]$ILL_DIE)
+mean3  <- mean(pred != gss[group3,]$ILL_DIE)
+
+group4 <- gssRandom[213:283]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group4,], importance = TRUE)
+pred   <- predict(prune.gss, gss[group4,], type = 'class')
+table  <- table(pred, gss[group4,]$ILL_DIE)
+mean4  <- mean(pred != gss[group4,]$ILL_DIE)
+
+group5 <- gssRandom[283:352]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group5,], importance = TRUE)
+pred   <- predict(prune.gss, gss[group5,], type = 'class')
+table  <- table(pred, gss[group5,]$ILL_DIE)
+mean5  <- mean(pred != gss[group5,]$ILL_DIE)
+
+(mean1 + mean2 + mean3 + mean4 + mean5)/5
+```
