@@ -3,7 +3,9 @@ Why do some people support Euthanasia, while others oppose it? Is there a partic
 
 --------
 Import "gss93.csv"
+
 Run the R code in "Euthanasia.Rmd"
+
 The code can be complied to produce a R Markdown pdf document. 
 
 --------
