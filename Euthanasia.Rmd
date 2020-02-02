@@ -1,1399 +1,402 @@
 ---
-title: 'Mental Health in the Workplace: What factors are involved in employees
-  seeking treatment?'
-author: 'Kelly Oh'
-date: "Started May 12, 2017, Updated in 2020"
-output:
-  word_document:
-    toc: yes
-  pdf_document:
-    toc: yes
+title: "Letting Patients Die: Predicting Attitudes Toward Euthanasia"
+author: "Kelly Oh"
+date: "Started December 8, 2015, Updated in 2020."
+output: pdf_document
 ---
-
-# I. Abstract
-
-To explore the issue of mental health in the workplace, we used the 2014 Open Sourcing Mental Health survey to identify potential factors that contribute to someone seeking treatment for their condition. The dataset contained information for 1,259 employed individuals regarding their attitudes towards various aspects of mental health and the workplace, as well as their demographic information and the frequency of mental illness. 1,031 people (82% of the sample) work for a tech company and 228 people (18%) do not. After exploring and preparing the data, we fit 8 classification models (Section IV: Stepwise Logistic Regression, LASSO, Decision Tree, K-Nearest Neighbors, Naive Bayes, Boosted Trees, Random Forest, and Neural net). The Boosted Trees algorithm performed the best due to having the lowest misclassification rate and the highest area under the curve (AUC). More importantly, through implementing the different models, the following factors have been consistently important across all methods: family history, knowing the care options, and knowing whether the employer provides benefits. Through this research, the goal is to identify predictors and find relevant information that could be useful in creating positive changes in the workplace that can encourage employees seek treatment for their mental health. 
-
-
-&nbsp;
-
-
-# II. Introduction
-
-This report is a compilation of the statistical and quantitative analysis as well as the modeling associated with the 2014 survey on the attitudes towards mental health and frequency of mental health disorders in the tech workplace, conducted by Open Sourcing Mental Illness (OSMI: https://osmihelp.org). The purpose is to develop various models that can accurately classify whether an individual has sought treatment (either yes or no) and to compare the findings in search for the "best" model by comparing performance measures.
-
-By exploring and cleaning the data and then building various classification models, we hope to identify potential factors that are important in determining whether one seeks treatment for a mental health condition. What attitudes are involved in people willing to seek treatment? Are there specific factors that cause one’s mental health to interfere with work? Are different factors important if one works for a tech company vs a non-tech company? This is important information which not only impacts employee well-being but also the well-being of the company, due to the possible negative effects of persistent mental illness on retaining valuable employees or long term decrease in workplace productivity.
-
-
-&nbsp;
-
-
-# III. Data Exploration
-
-## About the Dataset
-
-The dataset “Survey” contains 25 variables on 1,259 people from the 2014 OSMI survey. The variables *Timestamp* and *Comments* have been removed due to irrelevancy.
-    
-```{r,echo=FALSE}
+```{r}
 # Clear the environment 
 rm(list=ls())
 options(stringsAsFactors = F)
 
-set.seed(1)
-
-#install packages
-library(MASS)
+#Install Packages
+library(sp)
 library(tidyverse)
 library(magrittr)
-library(boot)
-library(tree)
-library(gridExtra)
-#library(forcats) #in tidyverse
-library(glmnet)
+library(readxl)
+library(stringr)
+library(reshape2)
+library(MASS)
+library(cluster)
 library(ggplot2)
 library(ggmosaic)
-library(caret)
-library(e1071)
-
-
-#Set working directory
-getwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-getwd()
-trim <- function (x) gsub("^\\s+|\\s+$", "", x) #function to remove white space
-
-#Function to make bar plot
-makebarPlot <- function(var, titleString) {
-  ggplot(data = survey, aes(x = var, fill = var)) +
-  geom_bar(stat = "count", alpha = 0.75) +
-  labs(title = titleString,
-       y = "Count") +
-  theme(plot.title = element_text(hjust = 0.5),  #center title
-        legend.position = "none", #remove legend
-        axis.title.x = element_blank()) #remove x-axis label
-}
-
-```
-```{r}
-survey <- read.csv("/Users/kelly/Desktop/Mental Health/Inputs/survey.csv")
-#survey <- read.csv("../Inputs/survey.csv") #import data
-survey <- survey[,-27] #remove comments
-survey <- survey[,-1] #remove timestamp
-(n = nrow(survey)) #n of observations
-
-(num_techemployees = length(survey$tech_company[which(survey$tech_company=="Yes")]))
-(num_NONtechemployees = length(survey$tech_company[which(survey$tech_company=="No")]))
-```
-
-The response variable we will look at is **treatment**. For treatment, 49.4% of individuals did not seek treatment and 50.6% did, making it a fairly balanced data set. We also wanted to look at work_interfere as a response variable, which asks, “If you have a mental health condition, do you feel that it interferes with your work?” 48.4% replied “often” or “sometimes”, and 30.7% replied “rarely” or “never” with approximately 20% blank responses. However, when we ran predictor screenings for both variables, we saw that each variable were extremely significant in predicting the other. Then when we ran the predictor screenings again, omitting work_interfere when assessing treatment and vice versa, the important variables were extremely similar for both models, indicating there is a high association between these two variables. This is insightful and to observe that those who believe that their mental health condition interferes with their work are more likely to seek treatment to address the issue.
-
-  
-```{r}
-100*table(survey$treatment)/n #treatment
-100*table(survey$work_interfere)/n #work_interfere
-```
-  
-&nbsp;
-
-In terms of the predictor variables, 1 is continuous (Age) and 24 are categorical (work_interfere and no_employees are ordinal). The names, descriptions, and/or the original survey question are included below for reference. The variables appear the way they are labeled in the dataset.
-
-1. **Gender**: Male, female or non-binary.
-
-2. **Age**: Continuous
-
-3. **Country**: Australia, Austria, Bahamas, Belgium, Bosnia and Herzegovina, Brazil, Bulgaria, Canada, China, Colombia, Costa Rica, Croatia, Czech Republic, Denmark, Finland, France, Georgia, Germany, Greece, Hungary, India, Ireland, Israel, Italy, Japan, Latvia, Mexico, Moldova, Netherlands, New Zealand, Nigeria, Norway, Philippines, Poland, Portugal, Romania, Russia, Singapore, Slovenia, South Africa, Spain, Sweden, Switzerland, Thailand, United Kingdom, United States, Uruguay, Zimbabwe.
-
-4. **state**: If you live in the United States, which state or territory do you live in?
-
-5. **self_employed**: Are you self-employed? Yes or No.
-
-6. **family_history**: Do you have a family history of mental illness? Yes or No.
-
-7. **treatment**: Have you sought treatment for a mental health condition? Yes or No. This is our response variables.
-
-8. **work_interfere**: If you have a mental health condition, do you feel that it interferes with your work? 4 ordinal levels: Never, Rarely, Sometimes, Often. 
-
-9. **no_employees**: How many employees does your company or organization have? 6 ordinal levels: 1-5, 6-25, 26-100, 100-500, 500-1000, More than 1000.
-
-10. **remote_work**: Do you work remotely (outside of an office) at least 50% of the time? 2 levels: Yes, and No.
-
-11. **tech_company**: Is your employer primarily a tech company/organization? 2 levels: Yes, and No.
-
-12. **benefits**: Does your employer provide mental health benefits? 3 levels: Yes, No, and Don’t Know.
-
-13. **care_options**: Do you know the options for mental health care your employer provides? 3 levels: Yes, No, and Not Sure.
-
-14. **wellness_program**: Has your employer ever discussed mental health as part of an employee wellness program? 3 levels: Yes, No, and Don’t Know.
-
-15. **seek_help**: Does your employer provide resources to learn more about mental health issues and how to seek help? 3 levels: Yes, No, and Not Sure.
-
-16. **anonymity**: Is your anonymity protected if you choose to take advantage of mental health or substance abuse treatment resources?  3 levels: Yes, No, and Don’t Know.
-
-17. **leave**: How easy is it for you to take medical leave for a mental health condition? 4 levels: Very difficult, Somewhat difficult, Very easy, Somewhat easy.
-
-18. **mental_health_consequence**: Do you think that discussing a mental health issue with your employer would have negative consequences? 3 levels: Yes, No, and Maybe.
-
-19. **phys_health_consequence**: Do you think that discussing a physical health issue with your employer would have negative consequences? 3 levels: Yes, No, and Maybe.
-
-20. **coworkers**: Would you be willing to discuss a mental health issue with your coworkers? 3 levels: Yes, No, and Some of them.
-
-21. **supervisor**: Would you be willing to discuss a mental health issue with your direct supervisor(s)? 3 levels: Yes, No, and Some of them.
-
-22. **mental_health_interview**: Would you bring up a mental health issue with a potential employer in an 
-Interview? 3 levels: Yes, No, and Maybe.
-
-23. **phys_health_interview**: Would you bring up a physical health issue with a potential employer in an interview? 3 levels: Yes, No, and Maybe.
-
-24. **mental_vs_physical**: Do you feel that your employer takes mental health as seriously as physical health? 3 levels: Yes, No, and Don’t Know.
-
-25. **obs_consequence**: Have you heard of or observed negative consequences for coworkers with mental health conditions in your workplace? 2 levels: Yes, and No.
-
-
-&nbsp;
-
-## Summary Statistics and Data Prep
-
-To get to know the data, we looked at the distribution of each variable (through a graphical representation and summary statistics) to get a comprehensive understanding of the dataset as well as to look for potential problems such as missing or unknown values. Moreover, we looked to see if we could simplify some variables by collapsing the levels and reducing the number of sub-categories. Ultimately, we would like to reduce the number of categories in the categorical variables. For some statistical methods this significantly simplifies calculations and also makes the output more readable. Grouping simplifies the models we use. For categorical variables, on mathematically based methods, the actual calculation sees a dummy variable for each level within a categorical variable. For something like this dataset where most of the variables are categorical, and each of them have several levels, we can see how the number of variables in the model equation will rise. Grouping reduces this problem, although it is worth noting that by doing all this blocking, we are potentially losing information that may be relevant.
-
-**Gender**: The survey responses ranged from various spellings of male and female, as well as a range of non-binary identifications (for example, "male-ish", "queer", "agender"). Thus we simplified the 49 different responses to 3 levels: male, female, and non-binary. 78.7% of the individuals were male, 19.7% were female, and 1.6% were non-binary. This seems representative sense, as there are significantly more men than women in the tech sector with even fewer identifying as neither.
-
-```{r, include=FALSE, echo=FALSE}
-maleResponses      = c("male", "m", "male-ish", "maile", "mal", "male (cis)",
-                       "make", "man", "msle", "mail", "cis male", "malr", "cis man")
-femaleResponses    = c("female", "trans-female", "cis female", "woman", "f",
-                       "femake", "femail", "cis-female/femme", "female (cis)")
-nonbinaryResponses = c("queer/she/they", "non-binary", "nah", "all", "enby", "fluid",
-                       "genderqueer", "androgyne", "agender", "male leaning androgynous",
-                       "guy (-ish) ^_^", "trans woman", "neuter", "female (trans)",
-                       "queer", "a little about you", "p", "something kinda male?",
-                       "ostensibly male, unsure what that really means")
-
-survey %<>%
-  mutate(Gender = trim(Gender),
-         Gender = tolower(Gender),
-         Gender = ifelse(Gender %in% maleResponses, "Male", Gender),
-         Gender = ifelse(Gender %in% femaleResponses, "Female", Gender),
-         Gender = ifelse(Gender %in% nonbinaryResponses, "Nonbinary", Gender),
-         Gender = as.factor(Gender))
-
-rm(maleResponses, femaleResponses, nonbinaryResponses)
-```
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$Gender)
-100*table(survey$Gender)/n 
-
-makebarPlot(survey$Gender, "Gender Distribution")
-```
-
-**Age**: Before looking at the distribution, we adjusted the original dataset by removing the age values that were impossible (ages < 0, ages < 12, ages > 100). The youngest person in this dataset is 18 years old and the oldest is 72. This makes sense, as it is less likely that younger people would work and have their own income. The mean is 32 years and the median is 31 years. The majority of the people are in their 20-40's with fewer people who are 50 and older. This seems pretty representative of the tech workforce age distribution, as people in tech are usually younger, with a greater proportion who are middle-aged and less who are older due to retirement or death. 
-
-```{r, include=FALSE, echo=FALSE}
-survey$Age <- trim(survey$Age)
-removeAge = c(which(survey$Age == -1726), which(survey$Age == -29),
-              which(survey$Age ==-1), which(survey$Age == 329),
-              which(survey$Age == 99999999999), which(survey$Age == 5),
-              which(survey$Age == 8), which(survey$Age == 11))
-
-survey$Age[removeAge] <- NA
-survey$Age <- as.numeric(survey$Age)
-
-rm(removeAge)
-```
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$Age)
-meanAge <- survey %>% group_by(Gender) %>%
-  summarize(Mean = round(mean(Age, na.rm = TRUE), 0))
-
-ageHist <- ggplot(survey, aes(x = Age, fill = Gender, color = Gender)) +
-  geom_histogram(binwidth = 5, alpha = 0.3, position = "identity") + 
-  labs(title = "Age Distribution",
-       x = "Age (Years)",
-       y = "Count") +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  geom_vline(data = meanAge, aes(xintercept = Mean, color = Gender),
-             linetype = "dashed") +
-  annotation_custom(tableGrob(meanAge),
-                    xmin = 55.8, xmax = 57.8,
-                    ymin = 200, ymax = 200.5)
-ageHist
-#show plot
-```
-
-
-**Country**: Too many subcategories so we attempted to group the 46 countries to the following geographical regions. We can see that more than half of the individuals are from the US. We also kept US (59.7%) and the UK (15%) as their own categories due to their high representation in the dataset. Mostly individuals from white populations are represented in this dataset but there is a small minority from Asia, Africa, Latin America & the Caribbean and the Middle East.
-
-- United States
-- United Kingdom
-- Europe: Austria, Belgium, Bosnia and Herzegovina, Bulgaria, Croatia, Czech Republic, Denmark, Finland, France, Georgia, Germany, Greece, Hungary, Ireland, Italy, Latvia, Moldova, Netherlands, Norway, Poland, Portugal, Romania, Russia, Slovenia, Spain, Sweden, Switzerland
-- Other Anglo: Canada, Australia, New Zealand
-- Latin America & the Caribbean: Brazil, Colombia, Costa Rica, Mexico, Uruguay, Bahamas
-- Asia: China, India, Japan, Philippines, Singapore, Thailand
-- Africa: Nigeria, South Africa, Zimbabwe
-- Middle East: Israel
-
-```{r, echo=FALSE}
-Europe     = c("Austria", "Belgium", "Bosnia and Herzegovina", "Bulgaria",
-               "Croatia", "Czech Republic","Denmark", "Finland", "France", "Georgia",
-               "Germany", "Greece", "Hungary","Ireland", "Italy", "Latvia",
-               "Moldova", "Netherlands", "Norway", "Poland", "Portugal", "Romania",
-               "Norway","Poland", "Russia","Slovenia", "Spain","Sweden","Switzerland")
-OtherAnglo = c("Canada", "Australia", "New Zealand")
-LAandCarib = c("Brazil", "Colombia", "Costa Rica", "Mexico", "Uruguay", "Bahamas, The")
-Asia       = c("China", "India", "Japan", "Philippines", "Singapore", "Thailand")
-Africa     = c("Nigeria", "South Africa", "Zimbabwe")
-MiddleEast = c("Israel")
-
-survey %<>%
-  mutate(Country = trim(Country),
-         Country = ifelse(Country %in% Europe, "Europe", Country),
-         Country = ifelse(Country %in% OtherAnglo, "Other Anglo", Country),
-         Country = ifelse(Country %in% LAandCarib, "Latin America and Caribbean", Country),
-         Country = ifelse(Country %in% Asia, "Asia", Country),
-         Country = ifelse(Country %in% Africa, "Africa", Country),
-         Country = ifelse(Country %in% MiddleEast, "Middle East", Country),
-         Country = as.factor(Country))
-
-rm(Europe, OtherAnglo, LAandCarib, Asia, Africa, MiddleEast)
-```
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$Country)
-100*table(survey$Country)/n
-
-countryCount <- survey %>% group_by(Country) %>%
-                           count(Country, na.rm=TRUE) #show count in descending order
-
-ggplot(data = countryCount,
-       aes(x = reorder(Country, n), y = n,
-           fill = Country)) +
-  geom_bar(stat = "identity", alpha = 0.75) +
-  labs(title = "Country of Origin Distribution",
-       y = "Count") +
-  theme(plot.title = element_text(hjust = 0.5), #center title
-        legend.position = "none", #remove legend
-        axis.title.y = element_blank()) + #remove y-axis label
-  coord_flip()
-```
-
-**state**: We removed this variable because out of the 1259 observations, 515 or 41% of them were NA’s. Including this variable would significantly reduce the number of observations that have entries for all variables. Also, people who are not from the US have NA entries for this variable and geographical information is already accounted for in the Country variable. Originally, we had divided the states into the 5 common geographic regions of the US. We had kept California, New York and Washington as their own categories due to their high representation. In the end, we removed this variable. 
-
-- Northeast: Maine, Massachusetts, Rhode Island, Connecticut, New Hampshire, Vermont, Pennsylvania, New Jersey, Maryland (missing Delaware and excluding New York).
-- Southeast: West Virginia, Virginia, DC, Kentucky, Tennessee, North Carolina, South Carolina, Georgia, Alabama, Mississippi, Louisiana, Florida (missing Arkansas).
-- Midwest: Ohio, Indiana, Illinois, Missouri, Wisconsin, Minnesota, Michigan, Iowa, Kansas, Nebraska, South Dakota (missing North Dakota).
-- Southwest: Texas, Oklahoma, New Mexico, Arizona
-- West: Colorado, Wyoming, Idaho, Oregon, Utah, Nevada, (missing Montana, Alaska, and Hawaii; excluding Washington and California)
-- NY
-- CA
-- WA
-
-```{r, echo=FALSE}
-Northeast = c("ME", "MA", "RI", "CT", "NH", "VT", "PA", "NJ", "MD") 
-Southeast = c("WV", "VA", "DC", "KY", "TN", "NC", "SC", "GA", "AL", "MS", "LA", "FL")
-Midwest   = c("OH", "IN", "IL","MO", "WI", "MN", "MI", "IA", "KS", "NE", "SD")
-Southwest = c("TX", "OK", "NM", "AZ")
-West      = c("CO", "WY", "ID", "OR", "UT", "NV", "PA", "NJ", "MD")
-
-survey %<>%
-  mutate(state = trim(state),
-         state = ifelse(state %in% Northeast, "Northeast", state),
-         state = ifelse(state %in% Southeast, "Southeast", state),
-         state = ifelse(state %in% Midwest, "Midwest", state),
-         state = ifelse(state %in% Southwest, "Southwest", state),
-         state = ifelse(state %in% West, "West", state),
-         state = as.factor(state))
-
-rm(Northeast, Southeast, Midwest, Southwest, West)
-```
-
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-100*table(survey$state)/n
-
-stateCount <- survey %>% group_by(state) %>%
-                         filter(state != "NA") %>%
-                         count(state, na.rm = TRUE) #show count in desc order
-ggplot(data = stateCount,
-       aes(x = reorder(state, n), y = n,
-           fill = state)) +
-  geom_bar(stat = "identity", alpha = 0.75) +
-  labs(title = "US Geographic Region Distribution",
-       y = "Count") +
-  theme(plot.title = element_text(hjust = 0.5), #center title
-        legend.position = "none", #remove legend
-        axis.title.y = element_blank()) + #remove y-axis label
-  coord_flip()
-```
-
-
-**self_employed**: Are you self-employed? The majority of the individuals (approximately 87%) are not self-employed. This makes sense as the majority are not their own bosses or own their own businesses. There are 18 observations with missing values for this variable, thus we will remove these observations because 18 is a small percentage of our overall n and we would rather keep this variable at the expense of these 18 observations. 
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$self_employed)
-100*table(survey$self_employed)/n
-
-makebarPlot(survey$self_employed, "Self Employed?")
-```
-
-**family_history**: Do you have a family history of mental illness? Approximately 60% did not have a family history and 40% did.
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$family_history)
-100*table(survey$family_history)/n
-
-makebarPlot(survey$family_history, "Family History of Mental Illness?")
-```
-
-
-**treatment**: Have you sought treatment for a mental health condition? This is our response variable. In our dataset, approximately 50% have sought treatment and 50% have not. This is interesting because we were expecting a minority to actually seek treatment for mental illness given the surrounding stigma.
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$treatment)
-100*table(survey$treatment)/n
-
-
-makebarPlot(survey$treatment, "Sought Treatment for Mental Health Condition?")
-```
-
-
-**work_interfere**: If you have a mental health condition, do you feel that it interferes with your work? A significant proportion (37%) responded "sometimes" and a lower proportion responded in the extremes of "never" (17%), "often" (11%), or "rarely" (13%). There is also an non-negligible chunk of NA's (21%).
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-survey$work_interfere = factor(survey$work_interfere,
-                               levels = c("Never", "Rarely", "Sometimes", "Often"),
-                               ordered = TRUE)
-summary(survey$work_interfere)
-100*table(survey$work_interfere)/n
-
-makebarPlot(survey$work_interfere,
-            "Of Those With a Mental Health Condition, Does it Interfere With Work?")
-```
-
-
-
-**no_employees**: How many employees does your company or organization have? We can see that there is a small minority (5%) for the medium-large sized company (500-1000 people). The majority of the companies are either 6-25 people (23%), 26-100 (23%) or greater than 1000 (23%). Approximately 13% work for tiny companies with 1-5 people and 14% work for medium sized companies of 100-500. Looking at this distribution, the individuals seem to either work for smaller companies (but not too small) or larger company.
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-survey$no_employees = factor(survey$no_employees,
-                             levels = c("1-5", "6-25", "26-100",
-                                        "100-500", "500-1000",
-                                        "More than 1000"),
-                             ordered = TRUE)
-summary(survey$no_employees)
-100*table(survey$no_employees)/n
-
-makebarPlot(survey$no_employees, "Number of Employees?")
-```
-
-
-**remote_work**: Do you work remotely (outside of an office) at least 50% of the time? Below, we see that about $70\%$ of respondents do not work remotely, while about $30\%$ of respondents worked remotely. Looking at this distribution, the individuals seem to work mostly within their company's locale.
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$remote_work)
-100*table(survey$remote_work)/n
-
-makebarPlot(survey$remote_work, "Remote Work?")
-```
-
-
-**tech_company**: Is your employer primarily a tech company/organization? Below we can see that $18\%$ of the respondents do not work for primarily a tech company/organization, while $82\%$ of the respondents work for a tech company/organization. This may become problematic in drawing conclusions for workers not in the tech industry, as the sample size may be too small for the results to be significant. makes sense given that we are interested in exploring the issue of mental health in the tech industry. 
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$tech_company)
-100*table(survey$tech_company)/n
-
-makebarPlot(survey$tech_company, "Work at a Tech Company?")
-```
-
-**benefits**: Does your employer provide mental health benefits? The distribution for this variable appears to be almost uniform with "Yes" being the most observed response. Below we see that $38\%$ of the respondents have an employer that provides mental health benefits, while approximately $30\%$ of the respondents don't. About $32\%$ of the respondents are unaware of whether or not their employer provides them with mental health benefits.
-
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$benefits)
-100*table(survey$benefits)/n
-
-makebarPlot(survey$benefits, "Are Mental Health Benefits Provided by Employer?")
-```
-
-**care_options**: Do you know the options for mental health care your employer provides? We notice that there are three categories for the care options variable: no, not sure, and yes. In this particular case, given the question ("do you know"), the answer should be either yes or no, thus, we group the not sure and no categories into one category, "no". We notice that the majority of respondents ($65\%$) do not know their options, while about $35\%$ know the options their employer provides for mental health care.
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-makebarPlot(survey$care_options, "Aware of Mental Health Care Options?")
-
-survey %<>% mutate(care_options = as.character(care_options),
-                   care_options = ifelse(care_options == "Not sure", "No", care_options),
-                   care_options = as.factor(care_options))
-
-summary(survey$care_options)
-100*table(survey$care_options)/n
-
-makebarPlot(survey$care_options, "Aware of Mental Health Care Options?")
-```
-
-**wellness_program**: Has your employer ever discussed mental health as part of an employee wellness program? We notice that there are three categories: "don't know", "no", "yes". We notice that the majority of the respondents ($67\%$) answered "no", while $18 \%$ of the respondents answered "yes", and $15\%$ of the respondents answered "don't know".
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$wellness_program)
-100*table(survey$wellness_program)/n
-
-makebarPlot(survey$wellness_program,
-            "Has Employer Discussed Mental Health as Part of Employee Wellness Program?")
-```
-
-
-**seek_help**: Does your employer provide resources to learn more about mental health issues and how to seek help? The majority of respondents ($51\%$) said "no", while about $29\%$ of respondents said they "don't know" and about $20\%$ of respondents said "yes".
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$seek_help)
-100*table(survey$seek_help)/n
-
-makebarPlot(survey$seek_help,
-            "Does Employer Provide Mental Health Resources & How to Seek Help?")
-```
-
-
-**anonymity**: Is your anonymity protected if you choose to take advantage of mental health or substance abuse treatment resources? We notice below that the majority of respondents ($65\%$) don't know if their anonymity is protected if the take advantage of mental health or substance abuse treatment resources. $30\%$ of respondents said "yes", while only $5\%$ said "no".
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$anonymity)
-100*table(survey$anonymity)/n
-
-makebarPlot(survey$anonymity,
-            "Is Anonymity Protected if Treatment Resources are Utilized?")
-```
-
-**leave**: How easy is it for you to take medical leave for a mental health condition? Below, we see in the distribution for the leave variable that there are five possible responses: “don’t know”, “somewhat difficult”, “somewhat easy”, “very difficult”, “very easy”. We will reduce these categories from 5 to 3 by setting the “somewhat difficult” responses and “very difficult” responses into one category, “difficult”. Similarly, we will set “somewhat easy” responses and “very easy” responses into one category, “easy”.
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-makebarPlot(survey$leave,
-            "How Easy is it to Take Mental Health Medical Leave?")
-
-diffResponses = c("Somewhat difficult", "Very difficult")
-easyResponses      = c("Somewhat easy", "Very easy")
-
-survey %<>% mutate(leave = trim(leave),
-                   leave = as.character(leave),
-                   leave = ifelse(leave %in% diffResponses, "Difficult", leave),
-                   leave = ifelse(leave %in% easyResponses, "Easy", leave),
-                   leave = as.factor(leave)) #convert back to factor
-
-table(survey$leave)
-
-makebarPlot(survey$leave,
-            "How Easy is it to Take Mental Health Medical Leave?")
-rm(diffResponses, easyResponses)
-```
-
-
-
-
-**mental_health_consequence**: Do you think that discussing a mental health issue with your employer would have negative consequences? We notice that there are three categories: "maybe", "no", "yes". We notice that we get about the same number of "no" and "maybe" responses, ($38.9\%$) answered "no", while $37.88\%$ of the respondents answered "maybe". $23.19\%$ of the respondents answered "yes". This shows that either most people think there aren't any strong negative consequences, or people are more wary of explicity saying that there are negatve consequences, due to the high percentage that respond "maybe".
-
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-100*table(survey$mental_health_consequence)/sum(table(survey$mental_health_consequence))
-
-answers <- c("Yes", "No", "Maybe")
-
-mhc_bp <- makebarPlot(survey$mental_health_consequence,
-            "Will Discussing Mental Health at Work Have Negative Consequences?")
-mhc_bp + scale_x_discrete(limits = answers)
-```
-
-**phys_health_consequence**: Do you think that discussing a physical health issue with your employer would have negative consequences? We notice that there are three categories: "maybe", "no", "yes". We notice that we get slightly more "maybe" responses than "no"'s and fewer "yes" responses. ($39.71\%$) answered "no", while $44.24 \%$ of the respondents answered "maybe". $16.04\%$ of the respondents answered "yes". This shows that there is a large amount of uncertainty in this answer.
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$phys_health_interview)
-100*table(survey$phys_health_interview)/sum(table(survey$phys_health_interview)) 
-
-answers <- c("Yes", "No", "Maybe")
-
-phi_bp <- makebarPlot(survey$phys_health_interview,
-            "Will Discussing Physical Health at Work Have Negative Consequences?")
-phi_bp + scale_x_discrete(limits = answers)
-```
-
-
-**coworkers**: Would you be willing to discuss a mental health issue with your coworkers?
-
-We notice that there are three categories: "some of them", "no", "yes". We notice that the overwheling majority respond with the answers "some of them". ($20.65\%$) answered "no", while $61.44\%$ of the respondents answered "some of them". $17.87\%$ of the respondents answered "yes". This shows that 'some of them' is the most prevalant answer here. This makes sense since it is an ambiguous answer and either yes or no respondents could mast their concerns with this answer.
-
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$coworkers)
-100*table(survey$coworkers)/sum(table(survey$coworkers))
-
-
-answers <- c("Yes", "No", "Some of them")
-
-co_bp <- makebarPlot(survey$coworkers,
-            "Would You Be Willing to Discuss a Mental Health Issue with Coworkers?")
-co_bp + scale_x_discrete(limits = answers)
-```
-
-
-**supervisor**: Would you be willing to discuss a mental health issue with your direct supervisor(s)?
-We notice that there are three categories: "some of them", "no", "yes". We notice that ($31.21\%$) answered "no", while $27.79\%$ of the respondents answered "some of them". The greatest fractionality, $40.98\%$ of the respondents, answered "yes". This shows that 'yes' is the most prevalant answer here.
-
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$supervisor)
-100*table(survey$supervisor)/sum(table(survey$supervisor)) 
-
-answers <- c("Yes", "No", "Some of them")
-
-sup_bp <- makebarPlot(survey$supervisor,
-            "Would You Be Willing to Discuss a Mental Health Issue with Supervisors?")
-sup_bp + scale_x_discrete(limits = answers)
-```
-
-
-**mental_health_interview**: Would you bring up a mental health issue with a potential employer in an interview?
-
-We notice that there are three categories: "maybe", "no", "yes". We notice that the overwhelming majority respond with the answers "no" with ($80.06\%$).$216.44 \%$ of the respondents answered "maybe" and only $3.49 \% $ answered "yes". This shows that, regardless of other attitiudes, respondents overwhelmingly do not want to bring up mental health concerns to employers.
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$mental_health_interview)
-100*table(survey$mental_health_interview)/sum(table(survey$mental_health_interview)) 
-
-
-answers <- c("Yes", "No", "Maybe")
-
-mhi_bp <- makebarPlot(survey$mental_health_interview,
-            "Would You Bring Up A Mental Health Issue in an Interview?")
-mhi_bp + scale_x_discrete(limits = answers)
-```
-
-**phys_health_interview**: Would you bring up a physical health issue with a potential employer in an interview?
-
-We notice that there are three categories: "maybe", "no", "yes". We notice that the that most prevalant answer is 'maybe', with $44.24 \%$, while $39.71 \%$ say 'no', and $16.04 \%$ say 'yes'. This is way less skewed than the previous question regarding mental health, although still shows the bias towards not bringing up any health issues. 
-
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$phys_health_interview)
-100*table(survey$phys_health_interview)/sum(table(survey$phys_health_interview)) 
-
-answers <- c("Yes", "No", "Maybe")
-
-phi_bp <- makebarPlot(survey$phys_health_interview,
-                      "Would You Bring Up A Physical Health Issue in an Interview?")
-phi_bp + scale_x_discrete(limits = answers)
-```
-
-
-**mental_vs_physical**: Do you feel that your employer takes mental health as seriously as physical health?
-We notice that there are three categories: "don't know, "no", "yes". We notice that the overwhelming majority respond with the answers "don't know". ($27.01\%$) answered "no", while $27.24\%$ of the respondents answered "yes". The greatest fractionality, $45.75\%$ of the respondents, answered "don't know". This shows that 'don't know' is the most prevalent answer here.
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$mental_vs_physical)
-100*table(survey$mental_vs_physical)/sum(table(survey$mental_vs_physical)) 
-
-answers <- c("Yes", "No", "Don't know")
-
-mvp_bp <- makebarPlot(survey$mental_vs_physical,
-                      "Should Employer Take Mental Health
-                      as Seriously as Physical Health?")
-mvp_bp + scale_x_discrete(limits = answers)
-```
-
-**obs_consequence**: Have you heard of or observed negative consequences for coworkers with mental health conditions in your workplace?
-We notice that only 'yes' and 'no' are the response categories. An overwhelming $85.38 \%$ of the respondents say 'no' while only $14.61 \%$ say 'yes'. This shows that although people seem to shy away from being open about mental health, as the previous questions suggest, respondents do not usually think that there are any negative consequences with having mental health conditions.
-
-
-```{r, fig.width=7, fig.height=3, echo=FALSE}
-summary(survey$obs_consequence)
-100*table(survey$obs_consequence)/sum(table(survey$obs_consequence)) 
-
-answers <- c("Yes", "No")
-
-oc_bp <- makebarPlot(survey$obs_consequence,
-                     "Observed Negative Consequences for
-                     Coworkers with Mental Health issues in Workplace?")
-oc_bp + scale_x_discrete(limits = answers)
-
-rm(answers)
-```
-
-To summarize the main changes, we cleaned up **Age** by removing nonsensical values and **Gender** by simplifying the options to either male, female, or non-binary. We also collapsed the levels for **Country** by creating sub-categories based on geographical locations and end with 8 geographical categories, with the United States making up the majority of the respondents with around $60 \%$ of total respondents. Similarly, we collapse **State** into 8 geographical categories. The rest of the variables are mostly presented without any modifications. We make slight adjustment to **Care options** by combining the 'not sure’ category with the ‘no’ category, since the question can only have a binary response. Similarly, we reduce the categories of the **leave** variable to two instead of four. We do not change the rest of the variables.
-
-
-&nbsp;
-
-
-
-## Graphical Analysis
-
-Quick summary:
-
-We created various visualizations to look at the relationship between treatment and the other variables. 
-
-**Age**: The range of ages are relatively similar for people who do and do not seek treatment for their mental illness. However, the median, 3rd quartile and upper bound ages for those who did seek treatment are higher than those who did not, perhaps indicating that older people may be more likely to seek treatment.
-
-```{r,echo=FALSE}
-ggplot(survey, aes(x = treatment, y = Age, fill = treatment)) + 
-  geom_boxplot() +
-  labs(title = "Age Distribution",
-       x = "Seek Treatment?",
-       y = "Age") +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  scale_fill_discrete(name = NULL, labels = c("No", "Yes")) #legend
-```
-
-
-**Gender**: When looking at gender, we can see that for females and non-binary identifying people, there is a greater proportion of individuals who seek treatment. However, for those who are male, there is a slightly greater proportion of those who do not seek treatment. This makes sense, as there is gender-related stigma around mental illness and thus this variable seems to be potentially useful in predicting whether one seeks treatment or not.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, Gender), fill = treatment), na.rm = TRUE) +
-   labs(title = "Gender in Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Gender") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-
-**self_employed**: We can see that for those who are not self-employed, there is a 50-50 split in terms of whether they seek treatment. However, for those who are self-employed, a greater percentage sought treatment than those who didn't. This is probably because it's easier to let yourself seek treatment if you are the one determining your job security.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, self_employed), fill = treatment), na.rm = TRUE) +
-   labs(title = "Self Employment in Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Self Employed?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**family_history**: For those without a family history of mental illness, a greater proportion did not seek treatment. However, the majority of those with a family history did seek treatment. Family history seems to be an important variable in determining whether one is willing to seek treatment -- perhaps this is because they are more aware of treatment options, or the importance of seeking treatment or have had experience with other family members seeking help for their mental health.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, family_history), fill = treatment), na.rm = TRUE) +
-   labs(title = "Family History in Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Family History of Mental Health Conditions?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**work_interfere**: For those who have a mental health condition, a greater proportion who said it never interfered with their work did not seek treatment. However, a greater proportion of those that rarely, sometimes, and often felt that their mental health condition interfered did seek treatment. It is interesting to note that even those who rarely felt interference still sought treatment. This seems to be an important predictor variable.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, work_interfere), fill = treatment), na.rm = TRUE) +
-   labs(title = "Mental Health Work Interference and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Of Those with Mental Health Condtions, Does it Interfere With Work?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-
-**no_employees**: For smaller companies (less than 100 people) or large companies (more than 1000 people), a smaller proportion did not seek treatment. However, for the mid-sized companies, a slightly greater proportion did seek treatment. Perhaps it is harder to seek treatment for mental health if you are at a smaller company due to one's greater role or if you are a larger company due to the lessened feeling of value or importance when one is a member of a larger group. Or due to a higher risk of becoming unemployed as a larger company has greater flexibility in hiring and firing.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, no_employees),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Company Size and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Number of Employees") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-
-**remote_work**: Remote work does not seem to be a very informative predictor variable when predicting if treatment is yes or no. For those who work remotely, the proportion that did not seek treatment is about equal to the proportion of those who don't work remotely. 
-
-```{r}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, remote_work),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Working Remotely and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Work Remotely?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**tech_company**: Tech company does not seem to be a very informative predictor variable when predicting if treatment is yes or no. For those who work at a tech company, the proportion that did not seek treatment is about equal to that of those who don't work at a tech company. 
-```{r}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, tech_company),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Tech Company and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Tech Company?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**benefits** For those whose employer provides mental health benefits, a smaller proportion does not seek treatment. For those whose employer provides no mental health benefits a larger proportion does not seek treatment. Finally, for those who don’t know if their employer provides mental health benefits, they have the largest proportion of individuals that have not sought treatment. 
-
-```{r}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, benefits),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Employer-Provided Mental Health Benefits and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Does Employer Provide Mental Health Benefits?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**care_options** For those who know the options for mental health care their employer provides, a smaller proportion did not seek treatment. For those who don’t know the options for mental health care their employer provides, the proportion of those that did seek treatment is much smaller. 
-```{r}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, care_options),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Knowledge of Employer-Provided
-        Mental Health Care Options and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Do You Know the Employer-Provided Options for Mental Health Care?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**wellness_program**: For those who seek treatment, we see that there is a larger portion for which employers have discussed mental health as part of an employee wellness program than those who do not seek treatment. This makes sense since people who seek treatment would have a better idea of the resources available. 
-
-```{r}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, wellness_program),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Employers' Discussion of Wellness Programs and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Has Employer Discussed Mental Health as Part of Employee Wellness Program?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**seek_help**: Similar to the previous plot, we see that for those who seek treatment, we see that there is a larger portion for those who know that employers have provided resources to learn more about mental health and seek help, than those who don't know or have employees who do not provide similar resources. This makes sense since people who seek treatment would have a better idea of the resources available.
-
-
-```{r}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, seek_help),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Workplace Mental Health Resources and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Does Employer Provide Mental Health Resources?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**anonymity** In a similar vein to the previous questions, we see that people who seek treatment have a greater portion of the people who know that there is anonymity protection for people who seek treatment than people who do not.
-
-
-```{r}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, anonymity),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Anonymity Protection and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Is Anonmyity Protected If You Use Mental Health Treatment Resources?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**leave** We see that of those who sought treatment, a greater proportion of those who responded that it is difficult to leave to care for their mental health sought treatment. However, it is roughly a 50/50 split for those who don’t know or said it was easy to seek treatment. This is an interesting finding -- perhaps those who sought treatment have found that it is actually difficult to take medical leave.
-
-```{r}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, leave),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Ease of Medical Leave and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "How Easy is it to Take Medical Leave for a Mental Health Condition?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**mental_health_consequence**: Here we see interesting results - people who seek treatment make up a larger portion of people who say that there are negative consequences if discussing mental health with an employer.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, mental_health_consequence),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "View of Discussing Mental Health with Employer and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Will Discussing Mental Health at Work Have Negative Consequences?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-
-**phys_health_consequence**: Here we see similar portions for all answers and there seem to be no distinguishable differences, which shows that there isn't much of a stigma with physical health consequences.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, phys_health_consequence),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "View of Discussing Physical Health with Employer and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Will Discussing Physical Health at Work Have Negative Consequences?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**coworkers**: Although the previous graphs suggest that mental health discussions have negative consequences, most people seem to have coworkers who they can talk to. This is similar for people seeking and not seeking treatment. 
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, coworkers),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Willingness to Discuss Mental Health with Coworkers
-                 and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Would You Be Willing to Discuss a Mental Health Issue with Coworkers?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**supervisor**: We see similar results for all responses here and, thus, can not make any meaningful inference.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, supervisor),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Willingness to Discuss Mental Health with Supervisors
-                  and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Would You Be Willing to Discuss a Mental Health Issue with Supervisors?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**mental_health_interview**: Here again we see evidence that suggests that people who do not seek treatment believe that bringing up mental health can have negative consequences. We see people who do not seek treatment overwhelmingly pick 'maybe' to the question of whether they would bring up mental health issues during an interview as compared to people seeking mental health treatment. However, this could also just be a further self-selecting bias issue.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, mental_health_interview),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Willingness to Discuss Mental Health in an Interview
-                  and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Would You Bring Up A Mental Health Issue in an Interview?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-
-**phys_health_interview**: People who do not seek treatment make up for a great portion of people who say that they would not bring up physical health issues. However, here the proportions are mostly the same for people whos seek treatment and people who do not seek treatment.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, phys_health_consequence),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Willingness to Discuss Physical Health in an Interview
-                  and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Would You Bring Up A Physical Health Issue in an Interview?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-**mental_vs_physical**: People who seek treatment seem to have a larger portion of people who think that their employer does not take mental health as seriously as physical health.
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, mental_vs_physical),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "View on Mental Health vs Physical Health and Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Should Employer Take Mental Health as Seriously as Physical Health?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-
-**obs_consequence**: We can see that people who do not seek treatment have a great portion of people who have not observed any negative consequences for people with mental health conditions, whereas people who seek treatment seem to have observed negative consequences a lot more. This makes sense but could perhaps be an observation bias. 
-
-```{r,echo=FALSE}
-ggplot(data = survey) +
-   geom_mosaic(aes(x = product(treatment, obs_consequence),
-                   fill = treatment), na.rm = TRUE) +
-   labs(title = "Observing Negative Consequences for Coworkers with
-                Mental Health Issuesand Seeking Treatment",
-        y = "Seek Treatment?",
-        x = "Observed Negative Consequences?") +
-  theme(plot.title = element_text(hjust = 0.5))
-```
-
-To summarize the graphical observations, the main trend we notice throughout the variables is that people who seek treatment are more sensitive and acutely aware of the way mental health is treated in the workplace.
-We find that **age** is similar between people who seek treatment and people who do not, hence it should not be an issue, which intuitively makes sense. Regarding **gender**, we see that female and non-binary people make up a larger portion on people who seek treatment. People with a **family history** of mental illness were more likely to seek treatment, which also makes sense. We also see that people with who seek treatment are more likely to believe that there are negative **mental health consequences** as compared to people who do not seek treatment. Another stark contrast is seen in the way people view **mental health in interview**. People overwhelmingly respond that they do not want to bring up mental health. This does not hold true for the similar question of **physical health in interview**.
-Overall, most of the other variables show even splits amongst people who seek treatment and people who do not or showed very obvious trends, such as people who do not seek treatment overwhelmingly make up a large portion of people who say that mental health does not have any **work interference**.
- These observations makes sense and helps us move forward with a better understanding of the fact that there might be some observable differences in the way people who seek treatment and people who do not seek treatment function in the workplace.
-
-&nbsp;
-
-For the purposes of building and testing classification models, the dataset has been split into a training set (n= 839 or 66.6% of the dataset) to build the models and a testing set (n= 420 or 33.3% of the dataset) to evaluate the models. To ensure that the training and testing sets are representative of the complete dataset, we checked the proportions for both and found that they are relatively similar and thus safe to use for fitting and predicting.
-
-```{r,echo=FALSE}
-survey %<>%
-  mutate_if(sapply(survey, is.character), as.factor) %>%
-  mutate(treatment = ifelse(treatment == "Yes", 1, 0)) #Convert "Yes" to 1, and "No" to 0
-
-survey <- survey[,-c(4,8)] #remove state and work_interfere
-survey <- survey[complete.cases(survey),]
-n = nrow(survey)
-train.index = c(sample(1:n, 839))
-#class(train.index)
-survey$Test <- 1
-survey$Test[train.index] <- 0
-
-train <- subset(survey, Test == 0)
-test  <- subset(survey, Test == 1)
-
-#Turn categ variables into numeric dummy variables
-surveyNum <- survey %>% mutate_if(sapply(train, is.factor), as.numeric)
-trainNum  <- train %>% mutate_if(sapply(train, is.factor), as.numeric)
-testNum   <- test %>% mutate_if(sapply(test, is.factor), as.numeric)
-
-treatment_index <- which(names(train) == "treatment")
-```
-
-```{r}
-#treatment
-100*table(train$treatment)/nrow(train) #train 
-100*table(test$treatment)/nrow(test) #test
-100*table(survey$treatment)/nrow(survey) #full dataset
-```
-
-```{r}
-#write.table(survey, "../Intermediate/train.txt", sep=",", row.names = FALSE)
-```
-
-
-
-&nbsp;
-
-
-
-# IV. Model Building & Interpretation
-
-
-## Stepwise Logistic Regression
-
-The logistic regression is one of the most basic forms of regressions for a categorical variable. The binary logistic model, for when we only have two responses for our dependent categorical variable, is used to estimate the probability of a binary response based on one or more predictor variables. It allows us to show how much the presence of a risk factor increases the probability of a given outcome by the specified percentage.The logistic regression is a regression that creates a probability function for the prediction, between 0 and 1. Therefore, we end up with sigmoidal curves for our predictions. 
-
-First, we performed a logistic regression on the binary categorical variable treatment using select predictor variables. We use the test and treatment sets for model prediction. To select variables for our logistic regression, we run a stepwise function. Stepwise regression computes estimates using OLS methods and helps reduce the model to relevant variables. Considering the output of the regression, we can see the variables that are most important in predicting the probability of saying yes to seeking treatment. We see that the variable **family history** is the most important variable. Following family history, we see that **care options**, **coworkers** with the responses of *No* and *Some of Them*, *males* in the **Gender** variable, and the *Country* variable with *Middle East*, *Latin America and Caribbean*, *Asia* and Europe* responses all are the most powerful variables, respectively.  
-
-A great advantage of the Stepwise logistic regression is the fact that we can interpret the coefficients and explain the regression in an intuitive and thus informative manner. Now we can consider the parameter estimates of the stepwise logistic regression. We can see that age has a very small negative impact on the likelihood of seeking treatment. However, since the effect is a 0.02 percentage increase for each increase in age by a year. It is interesting to observe that the Gender variable of male has a 0.709 positive coefficient. This is counterintuitive notion that non-males are less likely to seek treatment. This could perhaps just be a case of having a disproportionate number of males in the total dataset. Similarly we see that certain country of origin positively affects probability of seeking treatment. 
-
-
-```{r}
-#Full Log Regression
-fullLogReg = glm(treatment ~ .,family = binomial, data = train)
-summary(fullLogReg)
-
-regProb <- fullLogReg %>% predict(test, type = "response") #Make predictions
-regPred <- ifelse(regProb > 0.5, 1, 0)
-regObs  <- test$treatment #Test model accuracy -0.7258883
-mean(regPred == regObs)
-
-
-#Stepwise Log Regression
-stepLogReg <- stepAIC(fullLogReg, trace = FALSE)
-stepLogReg$anova
-```
-
-&nbsp;
-
-
-
-##Generalized Regression: LASSO
-
-We then consider another regression fitting procedure that may yield better prediction accuracy and model interpretability. The LASSO (Least Absolute Shrinkage and Selection Operator) attempts to make an improvement on the logistic regression by tackling shrinkage and subsetting the selection of predictors. It uses a "lasso penalty,” where some of the estimated coefficients are shrunken towards zero relative to the least squares estimates. Unlike the Ridge Regression (another type of regression that uses a penalty), which uses all of the predictors in the model, the LASSO will only use a subset of the predictors to identify the important ones resulting in variable selection.
-
-This adaptive version of the Lasso attempt to penalize influential variables less than inactive variables using AIC validation.
-
-We observe below a plot that is characteristic of the LASSO, we can observe the paths the coefficients take in arriving at their final estimate.
- 
-
-As is seen below the advantage of the LASSO is clear. The coefficients that are zeroed out indicate that we can remove those predictors from our model. Decreasing the number of predictors increases the interpretability of our model. The LASSO reduced the number of predictors from 45 to 23, which is a significant reduction. We can also be aware of what predictors were most significant in predicting whether or not an individual sought treatment for their mental health condition.
-
-```{r}
-#LASSO
-#Dummy categorical predictor variables
-LASSOx <- model.matrix(treatment ~ ., train)[,-1]
-LASSOy <- ifelse(train$treatment == 1, 1, 0)
-
-cv.LASSO <- cv.glmnet(LASSOx, LASSOy,
-                      alpha = 1, family = "binomial") #use cv to find optimal lambda
-LASSO    <- glmnet(LASSOx, LASSOy, alpha = 1, family = "binomial",
-                   lambda = cv.LASSO$lambda.min) #fit LASSO model
-
-coef(LASSO) #Regression coefficients
-```
-
-
-Moving forward, we analyze what the LASSO determined to be the significant variables & their coefficients.
-
-- Country[Middle East], [Latin America and Carribean]: -1.7823 and -0.6438 respectively. The coefficient is negative and has a highest value, implying that there is a strong negative relationship between being from the Middle East and LA and Carribian and seeking treatment.
-
-- family_history[Yes]: 1.2676 The coefficient is positive, implying that there is a positive relationship between a family history of mental illness and seeking treatment.
-
-- care_options[Yes]: 0.8388. The coefficient is positive, implying that there is a postiive relationship between knowing the options for mental health care your employer provides and seeking treatment.
-
-- coworkers[Yes]: 0.6086. The coefficient is positive, implying that there is a positive relationship between discussing a mental health issue with your coworkers and seeking treatment.
-
-- mental_health_interview[Yes]: 0.5638 The coefficient is positive, implying that there is a positive relationship between feeling positively towards discussing a mental health issue with your potential employer and seeking treatment.
-
-- benefits[Yes]: 0.5404 The coefficient is positive, implying that there is a positive relationship between your employer providing mental health benefits and seeking treatment.
-
-- Gender[Male]: -0.5191 The coefficient is negative, implying that there is a slightly negative relationship between being male and non-binary and seeking treatment -- which supports the gender-based stigma on mental health that is prevalent in many cultures.
-
-- leave[Very difficult]: 0.5045. The coefficient is positive, implying that there is a positive relationship between having it be difficult to take medical leave for a mental health condition and seeking treatment. This does not initially make much sense.
-
-
-
-&nbsp;
-
-
-##Classification Decision tree
-
-Decision trees recursively partitions data according to a relationship between the predictor and predicted values, creating a tree of partitions. It finds a set of cuts or groupings of the predictors that best predict the treatment class. It does this by exhaustively searching all possible cuts or groupings. These splits (or partitions) of the data are done recursively forming a tree of decision rules until the desired fit is reached. This is a powerful method - the optimum splits are chosen from a large number of possible splits. The best decision tree partition model resulted after 74 splits, initially splitting on marital status, then capital gain, then occupation. The progression of splits can be seen below along with the number of splits for each predictor variable.
-
-The first split is based on **family history**. Then the next split is on **care options**. Then it splits again on **leave difficulty**. This provides extremely important information as to what the crucial factors are in predicting whether one seeks treatment. This tree suggests that family history is easily the best predictor for a person’s likelihood of seeking treatment. Because this is a simple model, we opted not to prune the tree.
-
-```{r}
+library(zeallot)
+library(boot)
 library(tree)
-
-tree = tree(as.factor(treatment) ~ ., data = train)
-summary(tree)
-
-plot(tree)
-text(tree, pretty = 0, cex = 0.6)
-```
-
-
-
-## K-Nearest Neighbors (KNN)
-
-The K-Nearest Neighbors (KNN) predicts a response value based on the responses of the k nearest rows. The k nearest rows to a given row are determined by identifying the k smallest Euclidean distances between the predictor values for that row and the predictor values for each of the other rows. For a categorical response, the predicted value is the most frequent response level for the k nearest neighbors. If two or more levels are tied as the most frequent levels, the predicted response is assigned by selecting one of these levels at random. Moreover, each continuous predictor is scaled by its standard deviation. With this scaling, a single predictor with large units will not disproportionately influence the distance calculation. Each categorical predictor -- which are most of our predictors -- is expressed in terms of indicator variables, with one indicator variable representing each level. However, potential drawbacks of the K nearest neighbors method. KNN does not make a prediction formula that is practical for large problems, it does not produce fitted probabilities for categorical responses. 
-
-In another Statistical program called JMP, we ran KNN for k=1 to 35 (35 being the square root of the number of observations) and found that k=8 produced the lowest misclassification rate within the KNN model.
-
-
-```{r}
-library(class)
-
-##run knn function
-knn <- knn(trainNum, testNum, cl = trainNum$treatment, k = 8) #run knn model
-```
-
-&nbsp;
-
-
-
-##Naive Bayes
-
-The Naive Bayes computes the conditional probability of each variable occurring. If a variable is continuous (aka for Age), its conditional marginal density is estimated. The algorithm assumes that the variables are independent and the classification is based on the idea that an observation whose variables have high conditional probabilities within a certain classification (aka seeking treatment) has a high probability of belonging to that class. The algorithm is extremely fast because it estimates only one-dimensional densities or distributions making it nice to data sets with a large number of variable. All non-missing variables for an observation are used in calculating the conditional probabilities and each observation is assigned a naive score for each class. An observation’s naive score for a given class is the proportion of training observations that belong to that class multiplied by the product of the observation’s conditional probabilities. The naive probability that an observation belongs to a class is its naive score for that class divided by the sum of its naive scores across all classes. The observation is assigned to the class for which it has the highest naive probability. However, it is important to note that because naive bayes assumes that the conditional probabilities are independent, it requires a large training set to provide adequate representation and therefore might not be the optimal model for our dataset. 
-
-```{r}
-nb = naiveBayes(treatment ~., data = survey) #fit the Naive Bayes model
-nb #model summary
-```
-
-
-
-&nbsp;
-
-
-
-
-##Boosted Tree
-
-Boosting is the process of building a large, additive decision tree by fitting a sequence of smaller decision trees, which are called layers. The tree at each layer consists of a small number of splits, typically five or fewer. The tree is fit based on the residuals of the previous layers and the final prediction for an observation is the sum of the predicted residuals for that observation over all the layers. The partition algorithm searches all possible splits of predictors to best predict the response. These splits (or partitions) of the data are done recursively to form a tree of decision rules. The splits continue until the desired fit is reached. The partition algorithm chooses optimum splits from a large number of possible splits. 
-
- 
-```{r}
-library(xgboost)
-
-train_y = trainNum[,'treatment']
-train_x = trainNum[, names(trainNum) !='treatment']
-
-test_y = testNum[,'treatment']
-test_x = testNum[, names(testNum) !='treatment']
-
-#Matrix format
-xgb_train = xgb.DMatrix(data =  as.matrix(train_x), label = train_y )
-xgb_test = xgb.DMatrix(data =  as.matrix(test_x), label = test_y)
-
-#Datasets for each iteration
-watchlist = list(train=xgb_train, test=xgb_test)
-
-#Boosted tree
-bst = xgb.train(data = xgb_train, 
-                max.depth = 8, 
-                eta = 0.3, 
-                nthread = 2, 
-                nround = 1000, 
-                watchlist = watchlist, 
-                objective = "reg:linear", 
-                early_stopping_rounds = 50,
-                print_every_n = 500)
-```
-
-
-
-
-## Random Forest
-
-Random forest is an ensemble learning method for classifications or regressions. A random forest constructs a plethora of decision trees and averages the decision trees-- where each tree is fit to a bootstrap sample of the training data (A bootstrap sample is a random sample of observations, drawn with replacement). Each split in each tree considers a random subset of the predictors. Essentially, many “weak” models are combined to produce a more powerful model. The final prediction for a categorical observation is the average of the predicted probabilities over all the decision trees and the observation is then classified into the level for which its predicted probability is the highest.
-
-```{r}
 library(randomForest)
 
-train_y = trainNum[,'treatment']
-train_x = trainNum[, names(trainNum) !='treatment']
-
-rf <- randomForest(x = train_x, y = train_y,
-                   data = survey, importance = TRUE, ntree = 1000)
-rf
-plot(rf) #error significantly reduced at ~85 trees. Then error rate widens at 200.
+#Useful code that doesn't work in .Rmd but works well for .R
+# Install/load packages;
+#if (!library("pacman")) install.packages("pacman")
+#pacman::p_load(sp,
+#               tidyverse,
+#               magrittr,
+#               readxl,
+#               stringr,
+#               reshape2,
+#               MASS,
+#               cluster,
+#               ggplot2,
+#               ggmosaic,
+#               zeallot)
+#Set working directory
+#setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+#getwd()
 ```
 
-
-
-
-##Neural Network
-
-A neural network is a function of a set of derived inputs, called hidden nodes. The hidden nodes are nonlinear functions of the original inputs. We specified two layers of hidden nodes, with the first layer containing 5 nodes of the sigmoid activation type (TanH) and the second layer containing 3. The second layer nodes are functions of the X variables. The first layer nodes are functions of the second layer nodes and the Y variables are functions of the first layer nodes. The functions applied at the nodes of the hidden layers are called activation functions. They are transformations of a linear combination of the X variables. Because we have a nominal response variable, the function applied is a logistic transformation. The activation function we used is TanH. The hyperbolic tangent function is a sigmoid function. TanH transforms values to be between -1 and 1, and is the centered and scaled version of the logistic function. The hyperbolic tangent function is:  $\frac{e^{2x}-1}{e^{2x}+1}$ where x is a linear combination of the X variables. Moreover, we must specify a learning rate that is between 0 and 1.  Learning rates that are close to 1 often result in a faster convergence on a final model and lower misclassification rates but it also may also result in overfitting. We understand by selecting such a high learning rate that this model could be an example of high overfitting, however we wanted to see how far we could push the accuracy of a model, thus we chose a higher learning rate of .5. Ideally, we would have a third set to test our model on to truly see if we were overfitting. Further, we selected the weight decay penalty method to build our neural network model. JMP defines the penalty as $\lambda p (\beta_i)$, where $\lambda$ is the penalty parameter, and \$p( )$ is a function of the parameter estimates, called the penalty function. JMP finds the optimal value of the penalty parameter. We used the weight decay method because we had a large number of X variables, a few of which we believe contribute more than others to the predictive ability of the model. 
-
-The main advantage of a neural network model is that it can efficiently model different response surfaces. Given enough hidden nodes and layers, any surface can be approximated to any accuracy. However, the main disadvantage of a neural network model is that the results are not easily interpretable, since there are intermediate layers rather than a direct connection between X variables to the Y variables, as in the case of regular regression. Increasing the number of nodes in the first layer, or adding a second layer, makes the neural network more flexible, which introduces the possibility of overfitting. You can add an unlimited number of nodes to either layer. 
-
-
+Cleaning the Dataset
 ```{r}
-library(neuralnet)
+gssRaw <- read.csv("/Users/kelly/Desktop/Euthanasia/Inputs/gss93.csv")
+dropRows = c(0, 8, 9)
 
-## Do not scale data; categ variables turned into numeric. Not a wide range
-nn = neuralnet(treatment ~ ., data = trainNum, hidden = 3, 
-               act.fct = "logistic", linear.output = FALSE)
+gssClean <- gssRaw %>%
+  mutate(
+    MAR_STAT  = ifelse(MAR_STAT == 9, NA, MAR_STAT),
+    AGE       = ifelse(AGE == 0 | AGE == 98 | AGE == 99, NA, AGE),
+    EDUC      = ifelse(EDUC == 7 | EDUC == 8 | EDUC == 9, NA, EDUC),
+    RELIG     = ifelse(RELIG == 8 | RELIG == 9, NA, RELIG),
+    CAP_PUN   = ifelse(CAP_PUN %in% dropRows, NA, CAP_PUN),
+    GUN_LAW   = ifelse(GUN_LAW %in% dropRows, NA, GUN_LAW),
+    SEX_ED    = ifelse(SEX_ED %in% dropRows, NA, SEX_ED),
+    ILL_DIE   = ifelse(ILL_DIE %in% dropRows, NA, ILL_DIE),
+    READ_NEWS = ifelse(READ_NEWS %in% dropRows, NA, READ_NEWS),
+    NEWS_TV   = ifelse(NEWS_TV %in% dropRows, NA, NEWS_TV),
+    NEWS_PBS  = ifelse(NEWS_PBS %in% dropRows, NA, NEWS_PBS),
+    BIGBAND   = ifelse(BIGBAND %in% dropRows, NA, BIGBAND),
+    BLUEGRASS = ifelse(BLUEGRASS %in% dropRows, NA, BLUEGRASS),
+    COUNTRY   = ifelse(COUNTRY %in% dropRows, NA, COUNTRY),
+    BLUES     = ifelse(BLUES %in% dropRows, NA, BLUES),
+    MUSICALS  = ifelse(MUSICALS %in% dropRows, NA, MUSICALS),
+    CLASSICAL = ifelse(CLASSICAL %in% dropRows, NA, CLASSICAL),
+    FOLK      = ifelse(FOLK %in% dropRows, NA, FOLK),
+    JAZZ      = ifelse(JAZZ %in% dropRows, NA, JAZZ))
 
-plot(nn)
+
+gss <- gssClean[complete.cases(gssClean),]
+                                                              
 ```
 
 
-&nbsp;
-
-
-
-
-
-# V. Model Evaluations & Comparisons
-
-We use cross validation to assess a model's performance. This is why we initially partitioned our data into test and training subsets. Cross-validation can be used to estimate the test error associated with a given statistical learning method in order to evaluate its performance. The test error is the average error that results from using a statistical learning method to predict the response on a new observation - an observation that was not used in training the method. The use of a statistical learning method is warranted if it results in a low test error.
-
-Below we will view each method's confusion matrix, showing the number of true negatives, false positives, false negatives and true positives produced by each model. Ideally, we are looking to maximize the true negatives and the true positives, i.e when our model correctly predicts that an observation sought treatment or not for their mental health. We observe this by calculating the misclassification rate for each model, which tells us how many observations (in the test data) the model classified incorrectly. For each model, this rate is of course variable depending on the probability cutoff threshold that is used to classify high income.
-
-In this case, we compared all model's classification rate at a cutoff level of 0.5. For example, if the model predicted a 0.2 probability of an observation seeking treatment, then it was classified as treatment = Yes, while if the model predicted a 0.7 probability of seeking treatment then it was classified as treatment = Yes. Thus, we must acknowledge that the observed misclassification rates would be higher (for each model) if we were to choose a lower probability cutoff (for each model).
-
-For this reason, we also look at the ROC (Receiver Operating Characteristics) curve. This was easier to do in JMP - so the code is not included. It is a popular graphic for assessing overall classification performance. It displays the types of error rates (below, we graph the true positive rate by the false positive rate which are also called the sensitivity and the 1- specificity) for all possible thresholds. The overall performance of a classifier, summarized over all possible thresholds, is given by the area under the ROC curve, the AUC. An ideal ROC curve will hug the top left corner, so the larger the AUC the better the classifier. The maximum AUC is 1. We expect a classifier that performs no better than chance to have an AUC of 0.5. We go ahead and look at how the confusion matrix, misclassification rates, and AUCs compare for our models.
-
-Below, we compared the misclassification rate, the ROC curves and their corresponding AUC values. After comparing these results for all the models, we will adjust the probability threshold for the best model to minimize Type II error (which is falsely identifying a person who has not sought treatment as someone who has) at the expense of Type I error (falsely identifying a person who has sought treatment as someone who hasn’t) because it is better to over-check in with people who already sought treatment than to not check in with people who may not have sought treatment. 
-
-
-&nbsp;
-
-
-## Stepwise Regression
-
-
-Now let us consider the power of predictions made by the stepwise general logistic regression. The ROC curve of the test data shows us that we have an area of 0.7929 under the curve. This is a good fit. Considering the confusion matrix of the test column, we see that we have a misclassification rate of $0.28934$, giving us a strong model. We have a slightly higher false positive rate than a false negative, but the model is mostly stable and unbiased towards a certain type error.
-
-
+Non-metric MDS- shows two distinct clusters; tells us there is a difference between the 2 groups
 ```{r}
-stepProb <- stepLogReg %>% predict(test, type = "response") #Make predictions
-stepPred <- ifelse(stepProb > 0.5, 1, 0)
-stepObs  <- test$treatment #Test model accuracy - 0.7208122
-mean(stepPred == stepObs)
+gss_dais <- daisy(gss[,-1], metric = c("gower"))
+gss_mds  <- isoMDS(gss_dais)
+
+pal = c("darkblue", "darkgoldenrod2")
+table(gss$ILL_DIE)
+
+#Plot the Non-metric MDS
+plot(gss_mds$points,
+     main = "Views on Euthanasia",
+     xlab = "Dimension 1",
+     ylab = "Dimension 2")
+points(gss_mds$points[,1], gss_mds$points[,2], col = pal[gss$ILL_DIE], pch = 19)
+legend("topright", legend = c("Support", "Oppose"), col = pal, pch = 19)
+
 ```
 
 
-&nbsp;
-
-
-
-##LASSO
-
-Looking at the probability threshold= 0.5, the misclassification rate for the test set is $0.2640$. And the AUC is $0.7894$.
-
-The confusion matrix shows us that there is a slightly lower misclassification rate of false positives than false negatives, meaning there are more people who we are identifying as seeking treatment when they are actually not.
-
+Exploring relationships between variables and ILL_DIE using mosaic plots.
 ```{r}
-LASSOx.test <- model.matrix(treatment ~., test)[,-1]
-LASSOprob   <- LASSO %>% predict(newx = LASSOx.test) #Make predictions
-LASSOpred   <- ifelse(LASSOprob > 0.5, 1, 0)
-LASSOobs    <- test$treatment #Test model accuracy - 0.7081218
-mean(LASSOpred == LASSOobs)
-```
-
-
-
-&nbsp;
-
-##Decision Tree
-
-JMP shows that the ROC curve on the test data of the decision tree gives us an area of $0.7806$ under the curve. This is similar to the regression model and suggests a slightly strong model. Furthermore, the confusion matrix of the test data gives us a misclassification rate of $0.284$, which is not the strongest model. However, as per discussion, the decision tree method is a good way to intuitively understand the importance of certain variables, but is not a great model for predictive tasks.
-
-```{r}
-tree_pred = predict(tree, data = train, type = "class")
-
-confusionMatrix(tree_pred,train$treatment)
-cv_10 <- createMultiFolds(train$treatment, k = 10, times = 10)
-
-#Control
-ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 10, index = cv_10)
-##Train the data
-tree_cv <- train(x = train[, -treatment_index], y = train[, treatment_index],
-                 method = "rpart", tuneLength = 30, trControl = ctrl)
-
-
-##Checking accurcay
-plot(tree_cv)
-
-###Cross validate using test data
-test_tree = predict(tree_cv$finalModel, newdata = test,type = "class")
-
-confusionMatrix(test_tree, test$Treatment)
-```
-
-
-&nbsp;
-
-##K-Nearest Neighbors (KNN)
-
-The lowest misclassification rate for KNN was for K=8 with a rate of 0.32487 for the test set. KNN does not have a ROC (and thus no AUC value). This is higher than the other models and it also produces a higher false negative rate than a false positive rate.
-
-```{r}
-pred = predict(knn, testNum[,-treatment_index])
-confusionMatrix(pred, testNum$treatment)
-```
-
-
-
-
-&nbsp;
-
-
-##Naive Bayes
-
-Unlike the other models, the naive bayes model does not provide us with an ROC analysis. However, we can see the confusion matrix and see that we get a misclassification rate of $0.302$. This is slightly higher than the previous models and suggests that we shouldn’t use the Naive Bayes as the best predictive model for our categorical variable. We also get a higher false negative rate than a false positive rate, which is also less desirable. Overall, the naive bayes is a good first test to understand the data, but not a great model for predictions.
-```{r}
-nb_test <- test[, -treatment_index]
-pred = predict(nb, nb_test) #predict on test set
-
-confusionMatrix(pred, test[, treatment_index]) #confusion matrix to check accuracy of model
-```
-
-
-
-
-## Boosted Trees
-Below we see that the misclassification error rate (MR) for the model is .256 and the AUC is about .82. We also see the plot of MR against number of layers and see how it decreases slightly after 15 layers.
-
-
-```{r}
-```
-
-
-
-## Random Forest
-Below we see that the misclassification error rate for the test set is .269 and the AUC corresponding to the ROC curve is .8069.
-
-```{r}
-rf_labels <- test %>% select(-treatment)
-pred = predict(rf, rf_labels) #predict on test set
-
-confusionMatrix(pred, test$treatment) #confusion matrix to check accuracy of model
-
-cv10_1 <- createMultiFolds(train_val1[,5], k = 10, times = 10)
-
-
-
-# Set up caret's trainControl object per above.
-
-ctrl_1 <- trainControl(method = "repeatedcv", number = 10, repeats = 10,
-
-                      index = cv10_1)
-
-
-
-
-
-
-
-set.seed(1234)
-
-rf.5<- train(x = train_val1[,-5], y = train_val1[,5], method = "rf", tuneLength = 3,
-
-              ntree = 1000, trControl =ctrl_1)
-
-```
-
-
-##Neural Networks
-
-Below we see the prediction measures for both the training and the test data set. We are most interested in the misclassification error rate and the ROC curve along with its corresponding AUC of the test set. 
-
-
-```{r}
-
-nn_pred = compute(nn, testNum)
-nn_prob <- nn_pred$net.result
-
-pred <- ifelse(nn_prob > 0.5, 1, 0)
-```
-
-
-
-Our neural networks model resulted in a misclassification rate of .244, the lowest MR of our models. It isn’t surprising that it was the best performing model, given that we used a learning rate of .5, which is relatively high. We understand by selecting such a high learning rate that this model could be an example of overfitting, however we wanted to see how far we could push the accuracy of a model, thus we chose a higher learning rate of .5. Below, we also see the ROC curve; the corresponding AUC is .8150. 
-
-
-
-
-# VI. Conclusion
-
-Before we choose the “best” classifier – we must ask ourselves: What does it mean for one model to be better than the other? Do we compare prediction accuracy? How about the quality of conceptual interpretation? Data mining is an art as much as a science -- one “correct” answer doesn’t exist. 
-
-When we evaluate based on a quantitative performance metric of misclassification rate for the test set, the neural net model did the best, as it produced the lowest error rate. However, due to JMP’s aforementioned model selection of boosted trees based on the highest R squared value (see pg. 130 of JMP’s Predictive and Specialized Modeling Guide Book) and not the lowest misclassification rate-- the final model for boosted trees after the experimental design produced a misclassification rate that was higher than neural net, although a model existed that had a rate that was lower than neural net. Below are the tuning parameters for model in our experimental design matrix with the lowest misclassification rate, 0.2335:
-
-
-
-However this model did not have the highest R-square, which is how JMP chooses the model from the design matrix. Thus these tuning parameters should have been chosen, given that they produce the model with the lowest MR. Thus, we find another instance in which JMP could improve its platform. We should be able to select which criteria is used to select the best model. In our case, the best criteria should be the lowest Misclassification rate. Therefore, we can still argue that boosted trees had the lowest rate. The next tier of models were LASSO and random/bootstrap forest. The decision did slightly worse than that, and Naive Bayes and KNN were the worst. 
-
-- Stepwise logistic regression: 0.289
-- LASSO: 0.264
-- Decision Tree: 0.284
-- K-Nearest Neighbors: 0.324
-- Naive Bayes: 0.302
-- Boosted Trees: 0.256
-- Random/Bootstrap Forest: 0.269
-- Neural Net: 0.2436
-
-When we compare based on the AUC, the boosted trees did the best.
-- Stepwise logistic regression: 0.793
-- LASSO: 0.789
-- Decision Tree: 0.781
-- K-Nearest Neighbors: N/A
-- Naive Bayes: N/A
-- Boosted Trees: 0.819
-- Random/Bootstrap Forest: 0.806
-- Neural Net: 0.815
-
-
-On the other hand, when we compare in terms of the quality of model interpretation -- the stepwise  regression, LASSO, decision tree, random/bootstrap forest, and the boosted trees were the most useful in determining which variables were significant. Although the decision tree did not perform as well as the other models, it provided insightful information as to determining which variables were the most important in determining whether someone sought treatment for their mental health or not. As for the stepwise regression model and the LASSO, both indicated which variables had the greatest effect in predicting whether someone sought treatment and provided information as to the direction and magnitude of the association between the variable and treatment. The boosted trees and the random/bootstrap forest also indicated important variables by finding variable contributions by looking at the number of times each variable was used to make splits.
-
-The models that were most obscure and difficult to interpret were KNN, Naive Bayes and Neural Net. For KNN and Naive Bayes, not only did it produce a relatively high error rate, it also has poor interpretative quality, as it doesn’t provide any information on variable importance or associations. Perhaps Naive Bayes may be better if we had a greater training set and thus more observations to have enough representation for each variable. However, the Neural Net produced an extremely accurate model. It is great in terms of predicting whether someone will seek treatment or not -- however, due to the indirect and obscure layers of “deep learning,” it is hard to determine important factors. 
+#Comments are below each chunk of code
+#Code for stylized charts are above
+#Quick, code for exploratory (less aesthetic) charts included at the bottom
+
+###----------------------------------------------------------------------------------
+#Stylized mosaic plots for charts in presentation
+ 
+gg <- ggplot(data = gss) +
+   geom_mosaic(aes(x = product(ILL_DIE, MAR_STAT), fill = MAR_STAT), na.rm = TRUE) +
+   labs(title="Marital Status and Euthanasia Position",
+        x = "Marital Status",
+        y = "1= Support, 2= Oppose") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+gg + scale_fill_discrete(name = NULL,
+                         labels = c("1 = Married", "2 = Widowed",
+                                   "3 = Divorced", "4 = Separated", "5 = Never Married"))
+prop.table(table(gss$ILL_DIE,gss$MAR_STAT), margin = 2)
+#More married people oppose than favor (because they are thinking of their loved ones?). More widowed people oppose than favor, perhaps for the same reason--the way they think of death has changed in the experience of seeing a loved one die? Funnily, more divorced people favor than oppose. More lonely? Not thinking of loved ones? More people who were never married favor than oppose--are these people younger? More lonely and independent? Raises interesting questions.
+
+
+bp <- ggplot(gss, aes(x = ILL_DIE, y = AGE, fill = ILL_DIE)) + 
+  geom_boxplot() +
+  labs(title = "Age and Euthanasia Position",
+       x = "Position",
+       y = "Age") +
+  theme(plot.title = element_text(hjust = 0.5)) #center title
+bp +
+  coord_flip() +
+  scale_fill_discrete(name = NULL, labels = c("1 = Support", "2 = Oppose")) #legend
+#Median age is younger for those who favor. Older you are, the more likely you are to oppose euthanasia. 
+
+
+gg <- ggplot(data = gss) +
+   geom_mosaic(aes(x = product(ILL_DIE, JAZZ), fill = JAZZ), na.rm = TRUE) +
+   labs(title="Jazz Music Preferences and Euthanasia Position",
+        x = "Jazz Music Preferences",
+        y = "1 = Support, 2 = Oppose") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+gg + scale_fill_discrete(name = NULL,
+                         labels = c("Like Very Much", "Like",
+                                    "Mixed Feelings", "Dislike", "Dislike a Lot"))
+#Those who really like jazz to those to have mixed feelings, more people support euthanasia than oppose it. However of those who dislike jazz - more people oppose euthansia. Higher your aversion, the more likely you are to oppose. Why?
+
+
+###----------------------------------------------------------------------------------
+#Creating less aesthetically pleasing mosaic plots as a general exploratory exercise.
   
-With that said, looking at the stepwise, LASSO, decision tree, random forest, boosted trees, the following variables were the most important: 
-- Stepwise: family history, care options, coworkers, gender, country, leave, seek help, benefits
-- LASSO: gender, country, family history, benefits, care options, leave, mental health consequence, coworkers
-- Decision tree:  family history, care options, leave
-- Bootstrap forest: family history, care options, age, country, benefits, leave, 
-- Boosted trees: family history, benefits, care options, mental health consequence, obs consequence, supervisor
+mosaicplot(ILL_DIE ~ EDUC, data = gss, col = rainbow(5),
+           main = "Education Level",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Religion",
+           sub = "0 = Less than HS, 1 = HS, 2 = Jr. College, 3 = Undergrad, 4 = Grad")
+#in least educated group (less than high school), we see fewer people favor than oppose. in the most educated group, more people favor than oppose
+
+boxplot(gss$AGE~gss$ILL_DIE)
+#median age is younger for those who favor; interesting plot so made an improved plot above.
+
+mosaicplot(ILL_DIE ~ GENDER, data = gss, col = rainbow(2),
+           main = "Gender",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Gender (1 = Male, 2 = Female)")
+#slightly more males favor than oppose; slightly more females oppose than favor
+
+mosaicplot(ILL_DIE ~ ETHNIC, data = gss, col = rainbow(3),
+           main = "Ethnicity",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Ethnicity (1 = White, 2 = Black, 3 = Other)")
+#More white people favor than oppose. Interestingly, more people of other ethnic groups oppose than favor.
+
+mosaicplot(RELIG ~ ILL_DIE, data = gss, col = rainbow(2),
+           main = "Religious Beliefs",
+           ylab = "1 = Support Euth, 2 = Oppose Euth",
+           xlab = "Religion",
+           sub = "1 = Protestant, 2 = Catholic, 3 = Jewish, 4 = None, 5 = Other")
+prop.table(table(gss$ILL_DIE,gss$RELIG), margin = 2)
+#Slightly more Protestants and Catholics oppose than favor. More people who do not identify with any religion favor than oppose.
+
+mosaicplot(CAP_PUN ~ ILL_DIE, data = gss, col = rainbow(2),
+           main = "Capital Punishment Views",
+           ylab = "1 = Support Euth, 2 = Oppose Euth",
+           xlab = "Capital Punishment Views",
+           sub= "1 = Support Capital Pun, 2 = Oppose Capital Punishment")
+prop.table(table(gss$ILL_DIE,gss$CAP_PUN), margin = 2)
+#More people who favor capital punishment also favor death law. More people who oppose capital punishment also oppose death law.
+
+mosaicplot(ILL_DIE ~ SEX_ED, data = gss, col = rainbow(2),
+           main = "Sex Ed Views",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Sex Ed Views (1 = Support, 2 = Oppose)")
+#More people who favor sex ed also favor letting the ill die. More people who oppose sex ed oppose ill die. 
 
 
-Across all models, the consistently important factors in determining whether someone sought treatment was family history, care options (knowing the options for mental health care the employer provides), benefits (whether an employer provides mental health benefits) and leave (how easy it is to take medical leave for a mental health condition). If an individual has a family history of mental health, one is more likely to seek treatment for a mental health condition. Perhaps their first hand experience allows them to remove some of the stigma and be more comfortable with seeking help or equip them with the knowledge of the possible processes and necessary accommodations that one could take. An individual is also more likely to seek treatment if they know the options for mental health care that their company provides. This is intuitive, as one are more likely to seek help if you are aware of the help that exists. Thus, companies should strive to clearly communicate the treatment options that they can provide to their employees. An individual who has sought treatment are more likely to indicate that it is hard to take medical leave for their mental condition thus it may be helpful to provide accommodations for their employees if they are struggling so they feel comfortable taking time off or reducing their work hours, without fear of losing their jobs. 
+mosaicplot(ILL_DIE ~ NEWS_TV, data = gss, col = rainbow(5),
+           main = "Frequency of Watching News",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "News Consumption",
+           sub = "1 = Everyday, 2 = Few Times A Week, 3= Once A Week, 4 = Few Times a Month, 5 = Never")
+#More people who watch the news every day oppose than favor. More people who watch the news once a week favor than oppose. No effect for other watching levels
 
-Another important variable that showed up in some of the models were mental health consequence -- which is whether one thinks that discussing a mental health issue with your employer would have negative consequences. Similar to the variable leave, of those who sought treatment, they are more likely to say that there are negative consequences thus it is important to make sure that this is minimized and employers are more open and responsive to an employee bringing up their health concerns. Another interesting variable is coworkers, which is whether one is willing to discuss a mental health issue with coworkers. Those who seek treatment are more likely to respond yes, indicating that it is important to foster an acceptable, open, and understanding work culture towards discussing mental illnesses.
+mosaicplot(ILL_DIE ~ COUNTRY, data = gss, col = rainbow(5),
+           main = "Country Music Preferences",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Country Music Preferences",
+           sub = "1 = Like Very Much, 2 = Like, 3 = Mixed Feelings 4 = Dislike, 5 = Dislike A Lot")
+#Of people who like country, more oppose euthanasia than favor. Of people who have mixed feelings, more favor than oppose. Same with people who strongly dislike.
 
-Although these insights may seem intuitive for those who are familiar with the topic of mental health -- however, many workplace environments and management teams are still lagging in implementing these policies as they may be see as possibly hindering workplace productivity.
+mosaicplot(ILL_DIE ~ MUSICALS, data = gss, col =rainbow(5),
+            main = "Musicals Preferences",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Musicals Preferences",
+           sub = "1 = Like Very Much, 2 = Like, 3 = Mixed Feelings 4 = Dislike, 5 = Dislike A Lot")
+#Of people who like musicals, more oppose euthanasia than favor. Of people who have mixed feelings, more favor than oppose.
 
-Overall, it is recommended to use the Boosted Trees model, as it ultimately performed the best in terms of prediction accuracy and model interpretation. However, it was worth building other models and comparing the results to delve deeper into the analysis.
+mosaicplot(ILL_DIE ~ FOLK, data = gss, col =rainbow(5),
+          main = "Folk Music Preferences",
+           xlab = "1 = Support Euth, 2 = Oppose Euth",
+           ylab = "Folk Music Preferences",
+           sub = "1 = Like Very Much, 2 = Like, 3 = Mixed Feelings 4 = Dislike, 5 = Dislike A Lot")
+#Of people who really like folk, more favor than oppose. Of people who like, more oppose than favor. Of people who have mixed feelings, more favor than oppose.
 
-Finally, we adjusted the probability threshold for this Boosted Trees model to minimize Type II error.
-
-For probability threshold for…
-- p> 0.5: 73.4% True Negatives, 26.6% False Negatives, 75.2% True Positives, 24.8% False Negatives
-
-- p >0.6: 68.5% True Negatives, 31.5% False Negatives, 82.1% True Positives, 17.9% False Negatives
-
-
-- p> 0.7: 62.3% True Negatives, 37.7% False Negatives, 89.5.% True Positives, 10.5% False Negatives
+mosaicplot(table(gss$ILL_DIE, gss$JAZZ), col =rainbow(5),
+           main ="Euthanasia Position and Jazz Opinion",
+           xlab ="1 = Support Euthanasia, 2 = Oppose Euthanasia",
+           ylab = 'Opinion About Jazz')
+#Of people who like jazz, more favor than oppose. Of people who dislike, more oppose than favor; interesting plot so made an improved plot above.
+```
 
 
+Logistic regression: 5 different models and error rates
+```{r}
+gss_glm <- gss %<>% mutate(ILL_DIE = ILL_DIE -1)
+fullfit <- glm(ILL_DIE ~ .-ID, data = gss, family = binomial(logit))
+summary(fullfit)
+#MAR_STAT, AGE, EDUC, RELIG, CAP_PUN, SEX_ED, READ_NEWS
 
-We see that by increasing the threshold, we can minimize Type II error but at the expense of Type I. Type II  is falsely identifying a person who has not sought treatment as someone who has and Type I error is falsely identifying a person who has sought treatment as someone who hasn’t. In this scenario, we prefer to minimize Type II because it is better to over-check in with people who already sought treatment than to not check in with people who may not have sought treatment. We propose that a probability threshold of 0.6 is sufficient in providing a low enough Type II error rate without spiking the Type I.
+cv.err <- cv.glm(gss, fullfit, K = 5)
+cv.err$delta[1] #0.2694
 
-&nbsp;
+mod1 <- glm(ILL_DIE ~ MAR_STAT + AGE + EDUC + GENDER + ETHNIC + RELIG +
+              CAP_PUN + SEX_ED + NEWS_TV + FOLK + JAZZ,
+            data = gss,
+            family = binomial(logit))
+summary(mod1)
+cv.err <- cv.glm(gss, mod1, K = 5)
+cv.err$delta[1] #0.2361
+
+mod2 <- glm(ILL_DIE ~ MAR_STAT+ AGE + ETHNIC + RELIG + CAP_PUN + SEX_ED,
+            data = gss,
+            family = binomial(logit))
+summary(mod2)
+cv.err <- cv.glm(gss, mod2, K = 5)
+cv.err$delta[1] #0.2068
+
+mod3 <- glm(ILL_DIE ~ AGE,
+            data = gss,
+            family = binomial(logit))
+summary(mod3)
+cv.err <- cv.glm(gss, mod3, K = 5)
+cv.err$delta[1] #.2111
+
+mod4 <- glm(ILL_DIE ~ MAR_STAT,
+           data = gss,
+           family = binomial(logit))
+summary(mod4)
+cv.err <- cv.glm(gss, mod4, K = 5)
+cv.err$delta[1] #.2195
+
+mod4 <- glm(ILL_DIE ~ MAR_STAT + AGE + ETHNIC + RELIG + CAP_PUN + SEX_ED + NEWS_TV, 
+            data = gss,
+            family = binomial(logit))
+summary(mod4)
+cv.err <- cv.glm(gss, mod4, K = 5)
+cv.err$delta[1] #0.2119
+
+#boxplot(gss$AGE~gss$MAR_STAT, main="Relationship between Age and Marital Status", xlab="1=married, 2=widowed, 3=divorced, 4=separated, 5=never married", ylab="Age")
+
+bp <- ggplot(gss, aes(x = MAR_STAT, y = AGE, fill = MAR_STAT)) + 
+  geom_boxplot() +
+  labs(title = "Relationship between Age and Marital Status",
+       x = "Marital Status",
+       y = "Age") +
+  theme(plot.title = element_text(hjust = 0.5)) #center title
+bp +
+  scale_fill_discrete(name = NULL,
+                      labels = c("1 = Married", "2 = Widowed", "3 = Divorced",
+                                 "4 = Separated", "5 = Never Married")) #legend
+```
+
+
+
+Tree
+```{r}
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss) #full tree
+summary(gss.tree)
+gss.tree
+plot(gss.tree)
+text(gss.tree, pretty = 0, cex = .6)
+
+
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass) #prune 
+cv.gss
+plot(cv.train$size, cv.gss$dev, type = "b")
+
+prune.gss = prune.misclass(gss.tree, best = 7)
+plot(prune.gss)
+text(prune.gss, pretty = 0, cex = .6)
+summary(prune.gss)
+
+
+#test the decision tree
+set.seed(20)
+gssRandom <- sample(1:nrow(gss))
+
+group1 <- gssRandom[1:70]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group1,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 13)
+pred <- predict(prune.gss, gss[group1,], type = 'class')
+table <-table(pred, gss[group1,]$ILL_DIE)
+mean1 <- mean(pred != gss[group1,]$ILL_DIE)
+
+group2 <-gssRandom[71:141]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group2,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 7)
+pred <- predict(prune.gss, gss[group2,], type = 'class')
+table <- table(pred, gss[group2,]$ILL_DIE)
+mean2 <- mean(pred != gss[group2,]$ILL_DIE)
+
+group3 <- gssRandom[142:212]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group3,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 5)
+pred <- predict(prune.gss, gss[group3,], type = 'class')
+table <- table(pred, gss[group3,]$ILL_DIE)
+mean3 <- mean(pred != gss[group3,]$ILL_DIE)
+
+group4 <-gssRandom[213:283]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group4,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 5)
+pred <- predict(prune.gss, gss[group4,], type = 'class')
+table <- table(pred, gss[group4,]$ILL_DIE)
+mean4 <- mean(pred != gss[group4,]$ILL_DIE)
+
+group5 <- gssRandom[283:352]
+gss.tree = tree(ILL_DIE ~ .-ID, data = gss[-group5,])
+cv.gss <- cv.tree(gss.tree, FUN = prune.misclass)
+cv.gss
+prune.gss = prune.misclass(gss.tree, best = 8)
+pred <- predict(prune.gss, gss[group5,], type = 'class')
+table <- table(pred, gss[group5,]$ILL_DIE)
+mean5 <- mean(pred != gss[group5,]$ILL_DIE)
+
+(mean1 + mean2 + mean3 + mean4 + mean5)/5
+```
+Random Forest
+```{r}
+gss.RF <- randomForest(ILL_DIE ~ . -ID,data = gss, importance = TRUE)
+gss.RF
+
+set.seed(20)
+gssRandom <- sample(1:nrow(gss))
+
+group1 <- gssRandom[1:70]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group1,], importance = TRUE)
+pred   <- predict(prune.gss, gss[group1,], type = 'class')
+table  <- table(pred, gss[group1,]$ILL_DIE)
+mean1  <- mean(pred != gss[group1,]$ILL_DIE)
+
+group2 <- gssRandom[71:141]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group2,], importance = TRUE)
+pred   <- predict(prune.gss,gss[group2,], type = 'class')
+table  <- table(pred, gss[group2,]$ILL_DIE)
+mean2  <- mean(pred!=gss[group2,]$ILL_DIE)
+
+group3 <- gssRandom[142:212]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group3,], importance = TRUE)
+pred   <- predict(prune.gss, gss[group3,], type = 'class')
+table  <- table(pred, gss[group3,]$ILL_DIE)
+mean3  <- mean(pred != gss[group3,]$ILL_DIE)
+
+group4 <- gssRandom[213:283]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group4,], importance = TRUE)
+pred   <- predict(prune.gss, gss[group4,], type = 'class')
+table  <- table(pred, gss[group4,]$ILL_DIE)
+mean4  <- mean(pred != gss[group4,]$ILL_DIE)
+
+group5 <- gssRandom[283:352]
+gss.RF <- randomForest(ILL_DIE ~ .-ID, data = gss[-group5,], importance = TRUE)
+pred   <- predict(prune.gss, gss[group5,], type = 'class')
+table  <- table(pred, gss[group5,]$ILL_DIE)
+mean5  <- mean(pred != gss[group5,]$ILL_DIE)
+
+(mean1 + mean2 + mean3 + mean4 + mean5)/5
+```
